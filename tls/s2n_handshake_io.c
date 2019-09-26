@@ -28,6 +28,7 @@
 #include "tls/s2n_resume.h"
 #include "tls/s2n_alerts.h"
 #include "tls/s2n_tls.h"
+#include "tls/s2n_tls13.h"
 #include "tls/s2n_kex.h"
 
 #include "stuffer/s2n_stuffer.h"
@@ -37,21 +38,19 @@
 #include "utils/s2n_random.h"
 #include "utils/s2n_str.h"
 
-/* From RFC 5246 7.4 */
+/* From RFC 8446: https://tools.ietf.org/html/rfc8446#appendix-B.3 */
 #define TLS_HELLO_REQUEST              0
 #define TLS_CLIENT_HELLO               1
 #define TLS_SERVER_HELLO               2
 #define TLS_SERVER_NEW_SESSION_TICKET  4
-#define TLS_SERVER_CERT               11
+#define TLS_ENCRYPTED_EXTENSIONS       8
+#define TLS_CERTIFICATE               11
 #define TLS_SERVER_KEY                12
-#define TLS_SERVER_CERT_REQ           13
-#define TLS_CLIENT_CERT_REQ           13 /* Same as SERVER_CERT_REQ */
+#define TLS_CERT_REQ                  13
 #define TLS_SERVER_HELLO_DONE         14
-#define TLS_CLIENT_CERT               11  /* Same as SERVER_CERT */
-#define TLS_CLIENT_CERT_VERIFY        15
+#define TLS_CERT_VERIFY               15
 #define TLS_CLIENT_KEY                16
-#define TLS_CLIENT_FINISHED           20
-#define TLS_SERVER_FINISHED           20  /* Same as CLIENT_FINISHED */
+#define TLS_FINISHED                  20
 #define TLS_SERVER_CERT_STATUS        22
 
 struct s2n_handshake_action {
@@ -69,19 +68,44 @@ static struct s2n_handshake_action state_machine[] = {
     [CLIENT_HELLO]              = {TLS_HANDSHAKE, TLS_CLIENT_HELLO, 'C', {s2n_client_hello_recv, s2n_client_hello_send}}, 
     [SERVER_HELLO]              = {TLS_HANDSHAKE, TLS_SERVER_HELLO, 'S', {s2n_server_hello_send, s2n_server_hello_recv}}, 
     [SERVER_NEW_SESSION_TICKET] = {TLS_HANDSHAKE, TLS_SERVER_NEW_SESSION_TICKET,'S', {s2n_server_nst_send, s2n_server_nst_recv}},
-    [SERVER_CERT]               = {TLS_HANDSHAKE, TLS_SERVER_CERT, 'S', {s2n_server_cert_send, s2n_server_cert_recv}},
+    [SERVER_CERT]               = {TLS_HANDSHAKE, TLS_CERTIFICATE, 'S', {s2n_server_cert_send, s2n_server_cert_recv}},
     [SERVER_CERT_STATUS]        = {TLS_HANDSHAKE, TLS_SERVER_CERT_STATUS, 'S', {s2n_server_status_send, s2n_server_status_recv}},
     [SERVER_KEY]                = {TLS_HANDSHAKE, TLS_SERVER_KEY, 'S', {s2n_server_key_send, s2n_server_key_recv}},
-    [SERVER_CERT_REQ]           = {TLS_HANDSHAKE, TLS_CLIENT_CERT_REQ, 'S', {s2n_client_cert_req_send, s2n_client_cert_req_recv}},
+    [SERVER_CERT_REQ]           = {TLS_HANDSHAKE, TLS_CERT_REQ, 'S', {s2n_client_cert_req_send, s2n_client_cert_req_recv}},
     [SERVER_HELLO_DONE]         = {TLS_HANDSHAKE, TLS_SERVER_HELLO_DONE, 'S', {s2n_server_done_send, s2n_server_done_recv}}, 
-    [CLIENT_CERT]               = {TLS_HANDSHAKE, TLS_CLIENT_CERT, 'C', {s2n_client_cert_recv, s2n_client_cert_send}},
+    [CLIENT_CERT]               = {TLS_HANDSHAKE, TLS_CERTIFICATE, 'C', {s2n_client_cert_recv, s2n_client_cert_send}},
     [CLIENT_KEY]                = {TLS_HANDSHAKE, TLS_CLIENT_KEY, 'C', {s2n_client_key_recv, s2n_client_key_send}},
-    [CLIENT_CERT_VERIFY]        = {TLS_HANDSHAKE, TLS_CLIENT_CERT_VERIFY, 'C', {s2n_client_cert_verify_recv, s2n_client_cert_verify_send}},
+    [CLIENT_CERT_VERIFY]        = {TLS_HANDSHAKE, TLS_CERT_VERIFY, 'C', {s2n_client_cert_verify_recv, s2n_client_cert_verify_send}},
     [CLIENT_CHANGE_CIPHER_SPEC] = {TLS_CHANGE_CIPHER_SPEC, 0, 'C', {s2n_client_ccs_recv, s2n_ccs_send}},
-    [CLIENT_FINISHED]           = {TLS_HANDSHAKE, TLS_CLIENT_FINISHED, 'C', {s2n_client_finished_recv, s2n_client_finished_send}},
+    [CLIENT_FINISHED]           = {TLS_HANDSHAKE, TLS_FINISHED, 'C', {s2n_client_finished_recv, s2n_client_finished_send}},
     [SERVER_CHANGE_CIPHER_SPEC] = {TLS_CHANGE_CIPHER_SPEC, 0, 'S', {s2n_ccs_send, s2n_server_ccs_recv}},
-    [SERVER_FINISHED]           = {TLS_HANDSHAKE, TLS_SERVER_FINISHED, 'S', {s2n_server_finished_send, s2n_server_finished_recv}},
+    [SERVER_FINISHED]           = {TLS_HANDSHAKE, TLS_FINISHED, 'S', {s2n_server_finished_send, s2n_server_finished_recv}},
     [APPLICATION_DATA]          = {TLS_APPLICATION_DATA, 0, 'B', {NULL, NULL}}
+};
+
+/*
+ * Client and Server handlers for TLS1.3.
+ */
+static struct s2n_handshake_action tls13_state_machine[] = {
+    /* message_type_t           = {Record type, Message type, Writer, {Server handler, client handler} }  */
+    [CLIENT_HELLO]              = {TLS_HANDSHAKE, TLS_CLIENT_HELLO, 'C', {s2n_client_hello_recv, s2n_client_hello_send}},
+
+    [SERVER_HELLO]              = {TLS_HANDSHAKE, TLS_SERVER_HELLO, 'S', {s2n_server_hello_send, s2n_server_hello_recv}},
+    [ENCRYPTED_EXTENSIONS]      = {TLS_HANDSHAKE, TLS_ENCRYPTED_EXTENSIONS, 'S', {s2n_encrypted_extensions_send, s2n_encrypted_extensions_recv}},
+    [SERVER_CERT_REQ]           = {TLS_HANDSHAKE, TLS_CERT_REQ, 'S', {s2n_client_cert_req_send, s2n_client_cert_req_recv}},
+    [SERVER_CERT]               = {TLS_HANDSHAKE, TLS_CERTIFICATE, 'S', {s2n_server_cert_send, s2n_server_cert_recv}},
+    [SERVER_CERT_VERIFY]        = {TLS_HANDSHAKE, TLS_CERT_VERIFY, 'S', {s2n_server_cert_verify_send, s2n_server_cert_verify_recv}},
+    [SERVER_FINISHED]           = {TLS_HANDSHAKE, TLS_FINISHED, 'S', {s2n_server_finished_send, s2n_server_finished_recv}},
+
+    [CLIENT_CERT]               = {TLS_HANDSHAKE, TLS_CERTIFICATE, 'C', {s2n_client_cert_recv, s2n_client_cert_send}},
+    [CLIENT_CERT_VERIFY]        = {TLS_HANDSHAKE, TLS_CERT_VERIFY, 'C', {s2n_client_cert_verify_recv, s2n_client_cert_verify_send}},
+    [CLIENT_FINISHED]           = {TLS_HANDSHAKE, TLS_FINISHED, 'C', {s2n_client_finished_recv, s2n_client_finished_send}},
+
+    /* Not used by TLS1.3, except to maintain middlebox compatibility */
+    [CLIENT_CHANGE_CIPHER_SPEC] = {TLS_CHANGE_CIPHER_SPEC, 0, 'C', {s2n_basic_ccs_recv, s2n_ccs_send}},
+    [SERVER_CHANGE_CIPHER_SPEC] = {TLS_CHANGE_CIPHER_SPEC, 0, 'S', {s2n_ccs_send, s2n_basic_ccs_recv}},
+
+    [APPLICATION_DATA]          = {TLS_APPLICATION_DATA, 0, 'B', {NULL, NULL}},
 };
 
 #define MESSAGE_NAME_ENTRY(msg) [msg] = #msg
@@ -89,9 +113,11 @@ static struct s2n_handshake_action state_machine[] = {
 static const char *message_names[] = {
     MESSAGE_NAME_ENTRY(CLIENT_HELLO),
     MESSAGE_NAME_ENTRY(SERVER_HELLO),
+    MESSAGE_NAME_ENTRY(ENCRYPTED_EXTENSIONS),
     MESSAGE_NAME_ENTRY(SERVER_NEW_SESSION_TICKET),
     MESSAGE_NAME_ENTRY(SERVER_CERT),
     MESSAGE_NAME_ENTRY(SERVER_CERT_STATUS),
+    MESSAGE_NAME_ENTRY(SERVER_CERT_VERIFY),
     MESSAGE_NAME_ENTRY(SERVER_KEY),
     MESSAGE_NAME_ENTRY(SERVER_CERT_REQ),
     MESSAGE_NAME_ENTRY(SERVER_HELLO_DONE),
@@ -105,10 +131,16 @@ static const char *message_names[] = {
     MESSAGE_NAME_ENTRY(APPLICATION_DATA),
 };
 
+/* Maximum number of valid handshakes */
+#define S2N_HANDSHAKES_COUNT        128
+
+/* Maximum number of messages in a handshake */
+#define S2N_MAX_HANDSHAKE_LENGTH    16
+
 /* We support different ordering of TLS Handshake messages, depending on what is being negotiated. There's also a dummy "INITIAL" handshake
  * that everything starts out as until we know better.
  */
-static message_type_t handshakes[128][16] = {
+static message_type_t handshakes[S2N_HANDSHAKES_COUNT][S2N_MAX_HANDSHAKE_LENGTH] = {
     [INITIAL] = {
             CLIENT_HELLO,
             SERVER_HELLO
@@ -320,23 +352,59 @@ static message_type_t handshakes[128][16] = {
     },
 };
 
-static char handshake_type_str[128][MAX_HANDSHAKE_TYPE_LEN] = {0};
+/*
+ * This selection of handshakes resembles the standard set, but with changes made to support tls1.3.
+ *
+ * These are just the basic handshakes. At the moment hello retries, session resumption, and early data are not supported.
+ *
+ * The CHANGE_CIPHER_SPEC messages are included only for middlebox compatibility.
+ * See https://tools.ietf.org/html/rfc8446#appendix-D.4
+ */
+static message_type_t tls13_handshakes[S2N_HANDSHAKES_COUNT][S2N_MAX_HANDSHAKE_LENGTH] = {
+    [INITIAL] = {
+            CLIENT_HELLO,
+            SERVER_HELLO
+    },
 
-static const char* handshake_type_names[] = { 
-    "NEGOTIATED|", 
-    "FULL_HANDSHAKE|",
-    "PERFECT_FORWARD_SECRECY|",
-    "OCSP_STATUS|",
-    "CLIENT_AUTH|",
-    "WITH_SESSION_TICKET|",
-    "NO_CLIENT_CERT|"
+    [NEGOTIATED] = {
+            CLIENT_HELLO,
+            SERVER_HELLO, SERVER_CHANGE_CIPHER_SPEC, ENCRYPTED_EXTENSIONS, SERVER_FINISHED,
+            CLIENT_CHANGE_CIPHER_SPEC, CLIENT_FINISHED,
+            APPLICATION_DATA
+    },
+
+    [NEGOTIATED | FULL_HANDSHAKE] = {
+            CLIENT_HELLO,
+            SERVER_HELLO, SERVER_CHANGE_CIPHER_SPEC, ENCRYPTED_EXTENSIONS, SERVER_CERT, SERVER_CERT_VERIFY, SERVER_FINISHED,
+            CLIENT_CHANGE_CIPHER_SPEC, CLIENT_FINISHED,
+            APPLICATION_DATA
+    },
+
+    [NEGOTIATED | FULL_HANDSHAKE | CLIENT_AUTH] = {
+            CLIENT_HELLO,
+            SERVER_HELLO, SERVER_CHANGE_CIPHER_SPEC, ENCRYPTED_EXTENSIONS, SERVER_CERT_REQ, SERVER_CERT, SERVER_CERT_VERIFY, SERVER_FINISHED,
+            CLIENT_CHANGE_CIPHER_SPEC, CLIENT_CERT, CLIENT_CERT_VERIFY, CLIENT_FINISHED,
+            APPLICATION_DATA
+    },
+
+    [NEGOTIATED | FULL_HANDSHAKE | CLIENT_AUTH | NO_CLIENT_CERT] = {
+            CLIENT_HELLO,
+            SERVER_HELLO, SERVER_CHANGE_CIPHER_SPEC, ENCRYPTED_EXTENSIONS, SERVER_CERT_REQ, SERVER_CERT, SERVER_CERT_VERIFY, SERVER_FINISHED,
+            CLIENT_CHANGE_CIPHER_SPEC, CLIENT_CERT, CLIENT_FINISHED,
+            APPLICATION_DATA
+    },
 };
 
-#define ACTIVE_MESSAGE( conn ) handshakes[ (conn)->handshake.handshake_type ][ (conn)->handshake.message_number ]
-#define PREVIOUS_MESSAGE( conn ) handshakes[ (conn)->handshake.handshake_type ][ (conn)->handshake.message_number - 1 ]
+#define IS_TLS13_HANDSHAKE( conn ) ((conn)->actual_protocol_version == S2N_TLS13)
 
-#define ACTIVE_STATE( conn ) state_machine[ ACTIVE_MESSAGE( (conn) ) ]
-#define PREVIOUS_STATE( conn ) state_machine[ PREVIOUS_MESSAGE( (conn) ) ]
+#define ACTIVE_STATE_MACHINE( conn )  (IS_TLS13_HANDSHAKE(conn) ? tls13_state_machine : state_machine)
+#define ACTIVE_HANDSHAKES( conn )      (IS_TLS13_HANDSHAKE(conn) ? tls13_handshakes : handshakes)
+
+#define ACTIVE_MESSAGE( conn )        ACTIVE_HANDSHAKES(conn)[ (conn)->handshake.handshake_type ][ (conn)->handshake.message_number ]
+#define PREVIOUS_MESSAGE( conn )      ACTIVE_HANDSHAKES(conn)[ (conn)->handshake.handshake_type ][ (conn)->handshake.message_number - 1 ]
+
+#define ACTIVE_STATE( conn )          ACTIVE_STATE_MACHINE(conn)[ ACTIVE_MESSAGE( (conn) ) ]
+#define PREVIOUS_STATE( conn )        ACTIVE_STATE_MACHINE(conn)[ PREVIOUS_MESSAGE( (conn) ) ]
 
 #define EXPECTED_MESSAGE_TYPE( conn ) ACTIVE_STATE( conn ).message_type
 
@@ -356,8 +424,15 @@ static int s2n_advance_message(struct s2n_connection *conn)
     /* Actually advance the message number */
     conn->handshake.message_number++;
 
-    /* Set TCP_QUICKACK to avoid artificial dealy during the handshake */
+    /* Set TCP_QUICKACK to avoid artificial delay during the handshake */
     GUARD(s2n_socket_quickack(conn));
+
+    /* When reading and using TLS1.3, skip optional change_cipher_spec states. */
+    if (ACTIVE_STATE(conn).writer != this &&
+            ACTIVE_STATE(conn).record_type == TLS_CHANGE_CIPHER_SPEC &&
+            IS_TLS13_HANDSHAKE(conn)) {
+        return s2n_advance_message(conn);
+    }
 
     /* If optimized io hasn't been enabled or if the caller started out with a corked socket,
      * we don't mess with it
@@ -455,6 +530,10 @@ skip_cache_lookup:
         conn->handshake.handshake_type |= CLIENT_AUTH;
     }
 
+    if (IS_TLS13_HANDSHAKE(conn)) {
+        return 0;
+    }
+
     if (s2n_kex_is_ephemeral(conn->secure.cipher_suite->key_exchange_alg)) {
         conn->handshake.handshake_type |= PERFECT_FORWARD_SECRECY;
     }
@@ -466,7 +545,8 @@ skip_cache_lookup:
     return 0;
 }
 
-int s2n_conn_set_handshake_no_client_cert(struct s2n_connection *conn) {
+int s2n_conn_set_handshake_no_client_cert(struct s2n_connection *conn)
+{
     s2n_cert_auth_type client_cert_auth_type;
     GUARD(s2n_connection_get_client_auth_type(conn, &client_cert_auth_type));
     S2N_ERROR_IF(client_cert_auth_type != S2N_CERT_AUTH_OPTIONAL, S2N_ERR_BAD_MESSAGE);
@@ -480,37 +560,6 @@ const char *s2n_connection_get_last_message_name(struct s2n_connection *conn)
     notnull_check_ptr(conn);
     
     return message_names[ACTIVE_MESSAGE(conn)];
-}
-
-const char *s2n_connection_get_handshake_type_name(struct s2n_connection *conn) 
-{
-    notnull_check_ptr(conn);
-
-    int handshake_type = conn->handshake.handshake_type;
-
-    if (handshake_type == INITIAL) {
-        return "INITIAL";
-    }
-
-    if (handshake_type_str[handshake_type][0] != '\0') {
-        return handshake_type_str[handshake_type];
-    }
-
-    /* Compute handshake_type_str[handshake_type] */
-    char *p = handshake_type_str[handshake_type];
-    char *end = p + sizeof(handshake_type_str[0]);
-
-    for (int i = 0; i < sizeof(handshake_type_names) / sizeof(handshake_type_names[0]); ++i) {
-        if (handshake_type & (1 << i)) {
-            p = s2n_strcpy(p, end, handshake_type_names[i]);
-        }
-    }
-
-    if (p != handshake_type_str[handshake_type] && '|' == *(p - 1)) {
-        *(p - 1) = '\0';
-    }
-
-    return handshake_type_str[handshake_type];
 }
 
 static int s2n_conn_update_handshake_hashes(struct s2n_connection *conn, struct s2n_blob *data)
@@ -729,7 +778,7 @@ static int handshake_read_io(struct s2n_connection *conn)
      * contain several messages.
      */
     S2N_ERROR_IF(record_type == TLS_APPLICATION_DATA, S2N_ERR_BAD_MESSAGE);
-    if(record_type == TLS_CHANGE_CIPHER_SPEC) {
+    if (record_type == TLS_CHANGE_CIPHER_SPEC) {
         S2N_ERROR_IF(s2n_stuffer_data_available(&conn->in) != 1, S2N_ERR_BAD_MESSAGE);
 
         GUARD(s2n_stuffer_copy(&conn->in, &conn->handshake.io, s2n_stuffer_data_available(&conn->in)));
@@ -742,7 +791,9 @@ static int handshake_read_io(struct s2n_connection *conn)
         conn->in_status = ENCRYPTED;
 
         /* Advance the state machine */
-        GUARD(s2n_advance_message(conn));
+        if (ACTIVE_STATE(conn).record_type == TLS_CHANGE_CIPHER_SPEC) {
+            GUARD(s2n_advance_message(conn));
+        }
 
         return 0;
     } else if (record_type != TLS_HANDSHAKE) {
@@ -783,8 +834,7 @@ static int handshake_read_io(struct s2n_connection *conn)
          * is set to optional, then switch the State Machine that we're using to expect the ClientCertRequest. */
         if (conn->mode == S2N_CLIENT
                 && client_cert_auth_type == S2N_CERT_AUTH_OPTIONAL
-                && actual_handshake_message_type == TLS_CLIENT_CERT_REQ
-                && EXPECTED_MESSAGE_TYPE(conn) == TLS_SERVER_HELLO_DONE) {
+                && actual_handshake_message_type == TLS_CERT_REQ) {
             conn->handshake.handshake_type |= CLIENT_AUTH;
         }
 
