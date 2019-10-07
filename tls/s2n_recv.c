@@ -25,7 +25,7 @@
 #include "error/s2n_errno.h"
 
 #include "tls/s2n_connection.h"
-#include "tls/s2n_handshake.h"
+#include "tls/s2n_handshake_types.h"
 #include "tls/s2n_record.h"
 #include "tls/s2n_resume.h"
 #include "tls/s2n_alerts.h"

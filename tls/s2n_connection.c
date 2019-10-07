@@ -32,7 +32,7 @@
 #include "tls/s2n_client_extensions.h"
 #include "tls/s2n_connection.h"
 #include "tls/s2n_connection_evp_digests.h"
-#include "tls/s2n_handshake.h"
+#include "tls/s2n_handshake_types.h"
 #include "tls/s2n_record.h"
 #include "tls/s2n_alerts.h"
 #include "tls/s2n_tls.h"

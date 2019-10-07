@@ -25,7 +25,7 @@
 #include <errno.h>
 
 #include "tls/s2n_connection.h"
-#include "tls/s2n_handshake.h"
+#include "tls/s2n_handshake_types.h"
 
 #define MAX_KEY_LEN 32
 #define MAX_VAL_LEN 255

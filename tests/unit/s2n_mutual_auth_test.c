@@ -22,7 +22,7 @@
 
 #include "crypto/s2n_fips.h"
 #include "tls/s2n_connection.h"
-#include "tls/s2n_handshake.h"
+#include "tls/s2n_handshake_types.h"
 #include "tls/s2n_cipher_preferences.h"
 #include "tls/s2n_cipher_suites.h"
 #include "utils/s2n_safety.h"

@@ -28,7 +28,7 @@
 #include "utils/s2n_safety.h"
 
 #include "tls/s2n_connection.h"
-#include "tls/s2n_handshake.h"
+#include "tls/s2n_handshake_types.h"
 
 int mock_client(int writefd, int readfd, uint8_t *expected_data, uint32_t size)
 {

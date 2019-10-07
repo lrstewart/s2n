@@ -27,13 +27,14 @@
 #include "tls/s2n_cipher_suites.h"
 #include "tls/s2n_connection.h"
 #include "tls/s2n_handshake.h"
+#include "tls/s2n_handshake_types.h"
 #include "tls/s2n_tls13.h"
 #include "utils/s2n_safety.h"
 
 /* Just to get access to the static functions / variables we need to test */
 #include "tls/s2n_handshake_io.c"
 
-static message_type_t invalid_handshake[S2N_MAX_HANDSHAKE_LENGTH];
+extern int s2n_all_valid_handshakes(uint8_t protocol_version, uint32_t *valid_handshakes, int max_valid_handshakes);
 
 static int s2n_test_handler(struct s2n_connection* conn)
 {
@@ -76,14 +77,9 @@ int main(int argc, char **argv)
     BEGIN_TEST();
 
     /* Construct an array of all valid tls1.3 handshake_types */
-    uint16_t valid_tls13_handshakes[S2N_HANDSHAKES_COUNT];
-    int valid_tls13_handshakes_size = 0;
-    for (int i = 0; i < S2N_HANDSHAKES_COUNT; i++) {
-        if( memcmp(tls13_handshakes, invalid_handshake, S2N_MAX_HANDSHAKE_LENGTH) != 0) {
-            valid_tls13_handshakes[valid_tls13_handshakes_size] = i;
-            valid_tls13_handshakes_size++;
-        }
-    }
+    uint32_t valid_tls13_handshakes[100];
+    int valid_tls13_handshakes_size;
+    GUARD(valid_tls13_handshakes_size = s2n_all_valid_handshakes(S2N_TLS13, valid_tls13_handshakes, 100));
 
     /* Use handler stubs to avoid errors in handler implementation */
     for (int i = 0; i < sizeof(tls13_state_machine) / sizeof(struct s2n_handshake_action); i++) {
@@ -91,21 +87,16 @@ int main(int argc, char **argv)
         tls13_state_machine[i].handler[1] = s2n_test_handler;
     }
 
-    /* Test: When using TLS 1.2, use the existing state machine and handshakes */
+    /* Test: Use correct state machine for protocol version */
     {
         struct s2n_connection *conn = s2n_connection_new(S2N_CLIENT);
+
         conn->actual_protocol_version = S2N_TLS12;
         EXPECT_EQUAL(ACTIVE_STATE_MACHINE(conn), state_machine);
-        EXPECT_EQUAL(ACTIVE_HANDSHAKES(conn), handshakes);
-        EXPECT_SUCCESS(s2n_connection_free(conn));
-    }
 
-    /* Test: When using TLS 1.3, use the new state machine and handshakes */
-    {
-        struct s2n_connection *conn = s2n_connection_new(S2N_CLIENT);
         conn->actual_protocol_version = S2N_TLS13;
         EXPECT_EQUAL(ACTIVE_STATE_MACHINE(conn), tls13_state_machine);
-        EXPECT_EQUAL(ACTIVE_HANDSHAKES(conn), tls13_handshakes);
+
         EXPECT_SUCCESS(s2n_connection_free(conn));
     }
 
@@ -120,7 +111,7 @@ int main(int argc, char **argv)
             conn->handshake.handshake_type = handshake;
 
             for (int j=0; j < S2N_MAX_HANDSHAKE_LENGTH; j++) {
-                if (tls13_handshakes[i][j] == CLIENT_CHANGE_CIPHER_SPEC) {
+                if (s2n_handshake_message(handshake, j, S2N_TLS13) == CLIENT_CHANGE_CIPHER_SPEC) {
                     conn->handshake.message_number = j - 1;
 
                     EXPECT_SUCCESS(s2n_advance_message(conn));
@@ -147,7 +138,7 @@ int main(int argc, char **argv)
             conn->handshake.handshake_type = handshake;
 
             for (int j=0; j < S2N_MAX_HANDSHAKE_LENGTH; j++) {
-                if (tls13_handshakes[i][j] == SERVER_CHANGE_CIPHER_SPEC) {
+                if (s2n_handshake_message(handshake, j, S2N_TLS13) == SERVER_CHANGE_CIPHER_SPEC) {
                     conn->handshake.message_number = j - 1;
 
                     EXPECT_SUCCESS(s2n_advance_message(conn));
@@ -174,7 +165,7 @@ int main(int argc, char **argv)
             conn->handshake.handshake_type = handshake;
 
             for (int j=0; j < S2N_MAX_HANDSHAKE_LENGTH; j++) {
-                if (tls13_handshakes[i][j] == SERVER_CHANGE_CIPHER_SPEC) {
+                if (s2n_handshake_message(handshake, j, S2N_TLS13) == SERVER_CHANGE_CIPHER_SPEC) {
                     conn->handshake.message_number = j - 1;
 
                     EXPECT_SUCCESS(s2n_advance_message(conn));
@@ -201,7 +192,7 @@ int main(int argc, char **argv)
             conn->handshake.handshake_type = handshake;
 
             for (int j=0; j < S2N_MAX_HANDSHAKE_LENGTH; j++) {
-                if (tls13_handshakes[i][j] == CLIENT_CHANGE_CIPHER_SPEC) {
+                if (s2n_handshake_message(handshake, j, S2N_TLS13) == CLIENT_CHANGE_CIPHER_SPEC) {
                     conn->handshake.message_number = j - 1;
 
                     EXPECT_SUCCESS(s2n_advance_message(conn));

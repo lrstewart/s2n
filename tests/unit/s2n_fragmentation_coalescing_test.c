@@ -23,7 +23,7 @@
 #include <s2n.h>
 
 #include "tls/s2n_connection.h"
-#include "tls/s2n_handshake.h"
+#include "tls/s2n_handshake_types.h"
 
 /*
  * The TLS protocol allows messages to be fragmented, interleaved and coalesced into 'records'. These

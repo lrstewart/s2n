@@ -29,7 +29,7 @@
 #include "utils/s2n_random.h"
 
 #include "tls/s2n_connection.h"
-#include "tls/s2n_handshake.h"
+#include "tls/s2n_handshake_types.h"
 
 #define MAX_BUF_SIZE 10000
 

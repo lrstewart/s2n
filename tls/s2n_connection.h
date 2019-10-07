@@ -21,7 +21,7 @@
 #include <s2n.h>
 
 #include "tls/s2n_tls_parameters.h"
-#include "tls/s2n_handshake.h"
+#include "tls/s2n_handshake_types.h"
 #include "tls/s2n_client_hello.h"
 #include "tls/s2n_crypto.h"
 #include "tls/s2n_config.h"

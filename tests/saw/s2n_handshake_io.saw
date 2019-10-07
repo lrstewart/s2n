@@ -276,19 +276,25 @@ let s2n_advance_message_spec = do {
     crucible_points_to (conn_handshake_handshake_type pconn) (crucible_term {{ (advance_message conn).handshake.handshake_type }});
     crucible_points_to (conn_handshake_message_number pconn) (crucible_term {{ (advance_message conn).handshake.message_number }});
 
-    // make sure the low-level spec representation of the declarative
-    // handshake/cork-uncork state machine is equivalent to the one in
-    // s2n
-    crucible_points_to (crucible_global "handshakes") (crucible_term {{ handshakes }});
     let messages = [ {{CLIENT_HELLO : [4]}}, {{SERVER_HELLO : [4]}}, {{SERVER_CERT : [4]}}, {{SERVER_NEW_SESSION_TICKET : [4]}}, {{SERVER_CERT_STATUS : [4]}}, {{SERVER_KEY : [4]}}, {{SERVER_CERT : [4]}}, {{SERVER_CERT_REQ : [4]}}, {{SERVER_HELLO_DONE : [4]}}, {{CLIENT_CERT : [4]}}, {{CLIENT_KEY : [4]}}, {{CLIENT_CERT_VERIFY : [4]}}, {{CLIENT_CHANGE_CIPHER_SPEC : [4]}}, {{SERVER_FINISHED : [4]}}, {{APPLICATION_DATA : [4]}}];
-
     for messages (verify_state_machine_elem (crucible_global "state_machine"));
     // assert that s2n_advance_message returns 0 (true if the 4
     // functions it calls don't fail)
     crucible_return (crucible_term {{ 0 : [32] }});
 };
 
-// Specs for the 5 functions that s2n_advance_message calls. Right now
+let s2n_handshake_message_spec = do {
+	handshake_type <- crucible_fresh_var "handshake_type" (llvm_int 32);
+    message_number <- crucible_fresh_var "message_number" (llvm_int 8);
+	
+	crucible_precond {{ message_number < 16 }};
+	
+	crucible_execute_func [ crucible_term handshake_type, crucible_term message_number, crucible_term {{33 : [8]}} ];
+	
+	crucible_return (crucible_term {{ (handshakes_fn handshake_type) @ message_number : [32] }});
+};
+
+// Specs for the functions that s2n_advance_message calls. Right now
 // we just assume the specs and don't verify them. That's because we
 // don't model the state that they depend on, instead, making assumptions
 // about it: we use managed corking and the socket was initially uncorked.
@@ -296,6 +302,7 @@ let s2n_advance_message_spec = do {
 // Specification for s2n_socket_write_uncork. The relevant part is
 // that it decrements the 'corked' ghost variable to indicate that the socket
 // has been uncorked.
+
 let s2n_socket_write_uncork_spec = do {
     pconn <- crucible_alloc (llvm_struct "struct.s2n_connection");
     cork_val <- crucible_fresh_var "corked" (llvm_int 2);
@@ -410,8 +417,12 @@ let s2n_handshake_io_lowlevel = do {
     s2n_allowed_to_cache_connection <- crucible_llvm_unsafe_assume_spec llvm "s2n_allowed_to_cache_connection" s2n_allowed_to_cache_connection_spec;
     print "s2n_decrypt_session_ticket";
     s2n_decrypt_session_ticket <- crucible_llvm_unsafe_assume_spec llvm "s2n_decrypt_session_ticket" s2n_decrypt_session_ticket_spec;
-    let dependencies = [s2n_socket_write_uncork, s2n_socket_write_cork, s2n_socket_was_corked, s2n_connection_is_managed_corked, s2n_socket_quickack];
 
+	print "Proving correctness of s2n_handshake_message";
+	s2n_handshake_message_proof <- crucible_llvm_verify llvm "s2n_handshake_message" [] false s2n_handshake_message_spec yices;
+    
+    let dependencies = [s2n_socket_write_uncork, s2n_socket_write_cork, s2n_socket_was_corked, s2n_connection_is_managed_corked, s2n_socket_quickack, s2n_handshake_message_proof];
+    
     print "Proving correctness of get_auth_type";
     auth_type_proof <- crucible_llvm_verify llvm "s2n_connection_get_client_auth_type" dependencies false s2n_connection_get_client_auth_type_spec (do {simplify (addsimp equalNat_ite basic_ss); yices;});
     print "Proving correctness of s2n_advance_message";

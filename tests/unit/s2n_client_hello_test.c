@@ -29,7 +29,7 @@
 #include "tls/s2n_tls13.h"
 #include "tls/s2n_connection.h"
 #include "tls/s2n_client_hello.h"
-#include "tls/s2n_handshake.h"
+#include "tls/s2n_handshake_types.h"
 #include "tls/s2n_tls_parameters.h"
 
 #include "utils/s2n_safety.h"

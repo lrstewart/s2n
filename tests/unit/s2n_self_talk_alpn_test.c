@@ -25,7 +25,7 @@
 #include <s2n.h>
 
 #include "tls/s2n_connection.h"
-#include "tls/s2n_handshake.h"
+#include "tls/s2n_handshake_types.h"
 
 int mock_nanoseconds_since_epoch(void *data, uint64_t *nanoseconds)
 {

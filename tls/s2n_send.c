@@ -21,7 +21,7 @@
 
 #include "tls/s2n_cipher_suites.h"
 #include "tls/s2n_connection.h"
-#include "tls/s2n_handshake.h"
+#include "tls/s2n_handshake_types.h"
 #include "tls/s2n_record.h"
 
 #include "stuffer/s2n_stuffer.h"

@@ -44,11 +44,10 @@ typedef enum {
     CLIENT_FINISHED,
     SERVER_CHANGE_CIPHER_SPEC,
     SERVER_FINISHED,
-    APPLICATION_DATA,
-
-    /* TLS1.3 message types. Defined: https://tools.ietf.org/html/rfc8446#appendix-B.3 */
     ENCRYPTED_EXTENSIONS,
     SERVER_CERT_VERIFY,
+    HELLO_RETRY_REQUEST,
+    APPLICATION_DATA,
 } message_type_t;
 
 struct s2n_handshake_parameters {
@@ -120,33 +119,6 @@ struct s2n_handshake {
     /* Handshake type is a bitset, with the following
        bit positions */
     uint32_t handshake_type;
-
-/* Has the handshake been negotiated yet? */
-#define INITIAL                     0x00
-#define NEGOTIATED                  0x01
-#define IS_NEGOTIATED( type ) ( (type) & NEGOTIATED )
-
-/* Handshake is a full handshake  */
-#define FULL_HANDSHAKE              0x02
-#define IS_FULL_HANDSHAKE( type )   ( (type) & FULL_HANDSHAKE )
-#define IS_RESUMPTION_HANDSHAKE( type ) ( !IS_FULL_HANDSHAKE( (type) ) && IS_NEGOTIATED ( (type) ) )
-
-/* Handshake uses perfect forward secrecy */
-#define PERFECT_FORWARD_SECRECY     0x04
-
-/* Handshake needs OCSP status message */
-#define OCSP_STATUS                 0x08
-#define IS_OCSP_STAPLED( type ) ( (type) & OCSP_STATUS )
-
-/* Handshake should request a Client Certificate */
-#define CLIENT_AUTH                 0x10
-
-/* Handshake requested a Client Certificate but did not get one */
-#define NO_CLIENT_CERT              0x40
-
-/* Session Resumption via session-tickets */
-#define WITH_SESSION_TICKET         0x20
-#define IS_ISSUING_NEW_SESSION_TICKET( type )   ( (type) & WITH_SESSION_TICKET )
 
     /* Which handshake message number are we processing */
     int message_number;
