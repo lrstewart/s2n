@@ -1,0 +1,15 @@
+Running formal verification with Yices 2.6.1 Copyright SRI International. Linked with GMP 6.1.2 Copyright Free Software Foundation, Inc. Build date: 2018-10-26 Platform: x86_64-pc-linux-gnu (release/static)
+Running formal verification with SAW version:
+0.4 (1a9a45b)
+set -o pipefail; \
+saw -d 5 -v 5 --output-locations verify_handshake.saw | tee tmp/verify_handshake.log
+[21:49:37.680] Loading file "/home/ubuntu/s2n/tests/saw/verify_handshake.saw"
+[21:49:38.112] [output] at /home/ubuntu/s2n/tests/saw/verify_handshake.saw:25:1-25:14:
+    Testing
+[21:50:17.493] Uninterpreted constant "|_.R.R.L|" used at incompatible types
+      Current type      : SBool
+      Previously used at: SWord2
+CallStack (from HasCallStack):
+  error, called at ./Data/SBV/Core/Symbolic.hs:1037:23 in sbv-8.3-LGma1tAv1j88wp7VP3rPxf:Data.SBV.Core.Symbolic
+Makefile:81: recipe for target 'tmp/verify_handshake.log' failed
+make: *** [tmp/verify_handshake.log] Error 2

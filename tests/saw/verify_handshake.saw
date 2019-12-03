@@ -20,8 +20,7 @@
 //
 ////////////////////////////////////////////////////////////////////////////
 
-include "spec/handshake/handshake.saw";
+import "spec/handshake/rfc_handshake_tls13_simple_2.cry";
 
-prove_handshake_io_lowlevel;
-prove_state_machine;
-prove_cork_uncork;
+print "Testing";
+prove_print z3 {{ tls13rfcSimulatesS2N `{17} }};

@@ -1,0 +1,114 @@
+// This module provides an specification of the TLS 1.2 handshake message
+// state machine according to RFCs 5246, 5077 and 6066 (OCSP extension only).
+
+module rfc_handshake_tls13 where
+
+import s2n_handshake_io
+
+tls13rfcSimulatesS2N : {len} (fin len, len >= 1) => connection -> Parameters -> Bit
+tls13rfcSimulatesS2N conn params =
+    initial_connection conn /\ connectionParameters conn params ==>
+    tracesMatchExcludingWaits
+        (map rfc2S2N (doHandshake`{len} params))
+        (traceS2N`{len} conn)
+
+type MessageType = [4]
+(applicationData        : MessageType) = 0
+(clientHello            : MessageType) = 1
+(helloRetryRequest      : MessageType) = 2
+(serverHello            : MessageType) = 3
+(encryptedExtensions    : MessageType) = 4
+(certificateRequest     : MessageType) = 5
+(certificate            : MessageType) = 6
+(certificateVerify      : MessageType) = 7
+(finished               : MessageType) = 8
+(endOfEarlyData         : MessageType) = 9
+(changeCipherSpec       : MessageType) = 10
+(error                  : MessageType) = 12
+
+type Sender = [2]
+(server   : Sender) = 0
+(client   : Sender) = 1
+(both     : Sender) = 2
+
+type Message = {
+    messageType : MessageType,
+    sender : Sender
+}
+
+mkMessage : MessageType -> Sender -> Message
+mkMessage mt s = {
+    messageType = mt,
+    sender = s
+}
+
+type Parameters = {
+    psk_mode : Bit,
+    retry : Bit,
+    client_auth : Bit,
+    no_client_cert : Bit,
+    zero_rtt : Bit
+}
+
+connectionParameters : connection -> Parameters -> Bit
+connectionParameters conn params = params.psk_mode == False
+                                   /\ params.retry == False
+                                   /\ params.client_auth == False
+                                   /\ params.no_client_cert == False
+                                   /\ params.zero_rtt == False
+
+doHandshake : {n} (fin n, n >= 1) => Parameters -> [n]Message
+doHandshake params = fst (foldl act (repeat empty, zero) actions)
+  where act (hndshk, index) (valid, mt, s) = if valid
+                                    then (update`{ix=(width n)} hndshk index (mkMessage mt s), index + 1)
+                                    else (hndshk, index)
+        empty = mkMessage applicationData both
+        actions = [
+            (True, clientHello, client),
+            (params.zero_rtt, changeCipherSpec, client),
+
+            // Retry
+            (params.retry, helloRetryRequest, server),
+            (params.retry, changeCipherSpec, server),
+            (params.retry /\ ~params.zero_rtt, changeCipherSpec, client),
+            (params.retry, clientHello, client),
+
+            (True, serverHello, server),
+            (~params.zero_rtt /\ ~params.retry, changeCipherSpec, server),
+            (True, encryptedExtensions, server),
+
+            // Server authentication
+            (~params.psk_mode /\ params.client_auth, certificateRequest, server),
+            (~params.psk_mode, certificate, server),
+            (~params.psk_mode, certificateVerify, server),
+
+            (True, finished, server),
+            (~params.retry /\ ~params.zero_rtt, changeCipherSpec, client),
+            (params.zero_rtt, endOfEarlyData, client),
+
+            // Client authentication
+            (~params.psk_mode /\ params.client_auth, certificate, client),
+            (~params.psk_mode /\ params.client_auth /\ ~params.no_client_cert, certificateVerify, client),
+
+            (True, finished, client)
+        ]
+
+rfc2S2N : Message -> handshake_action
+rfc2S2N msg = mkAct recordType messageType writer
+  where recordType = if   msg.messageType == changeCipherSpec then TLS_CHANGE_CIPHER_SPEC
+                     |    msg.messageType == applicationData then TLS_APPLICATION_DATA
+                     |    msg.messageType == error then TLS_ALERT
+                     else TLS_HANDSHAKE
+        messageType = if  recordType != TLS_HANDSHAKE then noMessageType
+                      |  msg.messageType == clientHello then TLS_CLIENT_HELLO
+                      |  msg.messageType == serverHello then TLS_SERVER_HELLO
+                      |  msg.messageType == helloRetryRequest then TLS_HELLO_RETRY_REQUEST
+                      |  msg.messageType == encryptedExtensions then TLS_ENCRYPTED_EXTENSIONS
+                      |  msg.messageType == certificateRequest then TLS_CERTIFICATE_REQ
+                      |  msg.messageType == certificate then TLS_CERTIFICATE
+                      |  msg.messageType == certificateVerify then TLS_CERT_VERIFY
+                      |  msg.messageType == finished then TLS_FINISHED
+                      |  msg.messageType == endOfEarlyData then TLS_END_OF_EARLY_DATA
+                      else noMessageType
+        writer = msg.sender # zero
+        noMessageType = TLS_HELLO_REQUEST // HelloRequests don't exist in tls1.3
