@@ -1,0 +1,226 @@
+// This module provides an specification of the TLS 1.2 handshake message
+// state machine according to RFCs 5246, 5077 and 6066 (OCSP extension only).
+
+module rfc_handshake_tls13 where
+
+import s2n_handshake_io
+
+allCombos : [128]Parameters
+allCombos = map paramsFrom [0 .. 127]
+  where bit num (i : [width 7]) = num @ i
+        paramsFrom (in : [7]) = {
+            compatMode = [ bit in 0, bit in 1],
+            psk_mode = bit in 2,
+            retry = bit in 3,
+            client_auth = bit in 4,
+            no_client_cert = bit in 5,
+            zero_rtt = bit in 6
+        }
+
+printAllHandshakes : [128]( Parameters, [17][22][8] )
+printAllHandshakes = map output allCombos
+    where output params = ( params, map s2nToWords (map rfc2S2N (doHandshake`{17} params)) )
+
+printHandshake : {len} (fin len, len >= 1) => ([3][8], [len][22][8], [3][8], [len][22][8])
+printHandshake = ("rfc", map s2nToWords (map rfc2S2N (doHandshake`{len} params)),
+                  "s2n", map s2nToWords (traceS2N`{len} conn))
+  where (params : Parameters) = {
+            compatMode = [False, False],
+            psk_mode = True,
+            retry = False,
+            client_auth = False,
+            no_client_cert = False,
+            zero_rtt = False
+        }
+        (conn : connection) = {
+            handshake = { handshake_type = 0x00000000,
+                          message_number = 0x00000000},
+            mode = 0x00000008,
+            corked_io = '\NUL',
+            corked = zero,
+            is_caching_enabled = False,
+            resume_from_cache = False,
+            server_can_send_ocsp = False,
+            key_exchange_eph = False,
+            client_auth_flag = False,
+            actual_protocol_version = '"'
+        }
+
+tls13rfcSimulatesS2N : {len} (fin len, len >= 1) => connection -> Parameters -> Bit
+tls13rfcSimulatesS2N conn params =
+    (initial_connection conn /\ connectionParameters conn params) ==>
+        tracesMatchExcludingWaits
+            (map rfc2S2N (doHandshake`{len} params))
+            (traceS2N`{len} conn)
+
+type MessageType = [4]
+(applicationData        : MessageType) = 0
+(clientHello            : MessageType) = 1
+(helloRetryRequest      : MessageType) = 2
+(serverHello            : MessageType) = 3
+(encryptedExtensions    : MessageType) = 4
+(certificateRequest     : MessageType) = 5
+(certificate            : MessageType) = 6
+(certificateVerify      : MessageType) = 7
+(finished               : MessageType) = 8
+(endOfEarlyData         : MessageType) = 9
+(changeCipherSpec       : MessageType) = 10
+(error                  : MessageType) = 12
+
+type Sender = [2]
+(server   : Sender) = 0
+(client   : Sender) = 1
+(both     : Sender) = 2
+
+type Message = {
+    messageType : MessageType,
+    sender : Sender
+}
+
+type Parameters = {
+    compatMode : [2],
+    psk_mode : Bit,
+    retry : Bit,
+    client_auth : Bit,
+    no_client_cert : Bit,
+    zero_rtt : Bit
+}
+
+connectionParameters : connection -> Parameters -> Bit
+connectionParameters conn params = params.psk_mode == False
+                                   /\ params.retry == False
+                                   /\ params.client_auth == False
+                                   /\ params.no_client_cert == False
+                                   /\ params.zero_rtt == False
+                                   /\ conn.actual_protocol_version == S2N_TLS13
+                                   /\ params.compatMode == [ conn.mode == S2N_SERVER, conn.mode == S2N_CLIENT ]
+
+type Action = {
+    message : Message,
+    valid : Bit
+}
+
+type StateId = [5]
+type State = {
+    id : StateId,
+    actions : [5]Action,
+    next : StateId
+}
+
+doHandshake : {n} (fin n, n >= 1) => Parameters -> [n]Message
+doHandshake params = (foldl doState initialHandshake (take`{n} (stateMachine params))).messages
+  where doState hs state = foldl doAction hs state.actions
+        doAction hs action = if action.valid /\ hs.index < `n
+                             then updateHandshake hs action.message
+                             else hs
+        updateHandshake hs value = {
+            messages = update`{ix=(width n)} hs.messages hs.index value,
+            index = hs.index + 1
+        }
+        initialHandshake = {
+            messages = repeat { messageType = applicationData, sender = both },
+            index = zero
+        }
+
+stateMachine : Parameters -> [inf]State
+stateMachine params = iterate (\s -> stateFor s.next) CLIENT_START_STATE
+  where compatMode mode = params.compatMode @ mode
+        stateFor id = find (\s -> s.id == id) ERROR_STATE states
+        states = [
+            CLIENT_START_STATE, HELLO_RETRY_STATE, SERVER_HELLO_STATE,
+            SERVER_AUTH_STATE, SERVER_FINISH_STATE, CLIENT_AUTH_STATE,
+            CLIENT_FINISH_STATE, FINISHED_STATE
+        ]
+
+        state : {n} (fin n, n <= 5) => StateId -> [n]Action -> State -> State
+        state id actions next = { id = id, actions = actions # zero, next = next.id }
+        action mt s v = { valid = v, message = { messageType = mt, sender = s } }
+
+        ERROR_STATE = state 0 [
+            action error both True
+        ] ERROR_STATE
+        
+        CLIENT_START_STATE = state 1 [
+            action clientHello client True,
+            action changeCipherSpec client (params.zero_rtt /\ compatMode client)
+        ] (if params.retry then HELLO_RETRY_STATE else SERVER_HELLO_STATE)
+        
+        HELLO_RETRY_STATE = state 2 [
+            action helloRetryRequest server True,
+            action changeCipherSpec server (compatMode server),
+            action changeCipherSpec client (~params.zero_rtt /\ compatMode client),
+            action clientHello client True
+        ] SERVER_HELLO_STATE
+
+        SERVER_HELLO_STATE = state 3 [
+            action serverHello server True,
+            action changeCipherSpec server (~params.retry /\ ~params.zero_rtt /\ compatMode server),
+            action encryptedExtensions server True
+        ] (if params.psk_mode then SERVER_FINISH_STATE else SERVER_AUTH_STATE)
+
+        SERVER_AUTH_STATE = state 4 [
+            action certificateRequest server params.client_auth,
+            action certificate server True,
+            action certificateVerify server True
+        ] SERVER_FINISH_STATE
+
+        SERVER_FINISH_STATE = state 5 [
+            action finished server True,
+            action changeCipherSpec client (~params.retry /\ ~params.zero_rtt /\ compatMode client),
+            action endOfEarlyData client params.zero_rtt
+        ] (if params.client_auth then CLIENT_AUTH_STATE else CLIENT_FINISH_STATE)
+
+        CLIENT_AUTH_STATE = state 6 [
+            action certificate client True,
+            action certificateVerify client (~params.no_client_cert)
+        ] CLIENT_FINISH_STATE
+
+        CLIENT_FINISH_STATE = state 7 [
+            action finished client True
+        ]  FINISHED_STATE
+        
+        FINISHED_STATE = state 8 [
+            action applicationData both True
+        ] FINISHED_STATE
+
+s2nToWords : handshake_action -> [22][8]
+s2nToWords actn = name # [ '(', actn.writer, ')']
+  where padded : {a, b} (fin a, fin b) => [b][8] -> [a+b][8]
+        padded msg = repeat ' ' # msg
+        name : [19][8]
+        name = if actn.record_type == TLS_CHANGE_CIPHER_SPEC then padded    "CCS"
+               |  actn.record_type == TLS_APPLICATION_DATA then padded      "Data"
+               |  actn.message_type == TLS_CLIENT_HELLO then padded         "ClientHello"
+               |  actn.message_type == TLS_SERVER_HELLO then padded         "ServerHello"
+               |  actn.message_type == TLS_HELLO_RETRY_REQUEST then padded  "HelloRetryRequest"
+               |  actn.message_type == TLS_ENCRYPTED_EXTENSIONS then padded "EncryptedExtensions"
+               |  actn.message_type == TLS_CERTIFICATE_REQ then padded      "CertRequest"
+               |  actn.message_type == TLS_CERTIFICATE then padded          "Cert"
+               |  actn.message_type == TLS_CERT_VERIFY then padded          "CertVerify"
+               |  actn.message_type == TLS_FINISHED then padded             "Finished"
+               |  actn.message_type == TLS_END_OF_EARLY_DATA then padded    "EndOfEarlyData"
+               |  actn.message_type == TLS_SERVER_SESSION_LOOKUP then padded "SessionLookup"
+               else padded                                                    "Error"
+
+rfc2S2N : Message -> handshake_action
+rfc2S2N msg = mkAct recordType messageType writer
+  where recordType = if   msg.messageType == changeCipherSpec then TLS_CHANGE_CIPHER_SPEC
+                     |    msg.messageType == applicationData then TLS_APPLICATION_DATA
+                     |    msg.messageType == error then TLS_ALERT
+                     else TLS_HANDSHAKE
+        messageType = if  recordType != TLS_HANDSHAKE then noMessageType
+                      |  msg.messageType == clientHello then TLS_CLIENT_HELLO
+                      |  msg.messageType == serverHello then TLS_SERVER_HELLO
+                      |  msg.messageType == helloRetryRequest then TLS_HELLO_RETRY_REQUEST
+                      |  msg.messageType == encryptedExtensions then TLS_ENCRYPTED_EXTENSIONS
+                      |  msg.messageType == certificateRequest then TLS_CERTIFICATE_REQ
+                      |  msg.messageType == certificate then TLS_CERTIFICATE
+                      |  msg.messageType == certificateVerify then TLS_CERT_VERIFY
+                      |  msg.messageType == finished then TLS_FINISHED
+                      |  msg.messageType == endOfEarlyData then TLS_END_OF_EARLY_DATA
+                      else noMessageType
+        writer = if msg.sender == server then 'S'
+                 | msg.sender == client then 'C'
+                 | msg.sender == both then 'B'
+                 else '!'
+        noMessageType = TLS_HELLO_REQUEST // HelloRequests don't exist in tls1.3
