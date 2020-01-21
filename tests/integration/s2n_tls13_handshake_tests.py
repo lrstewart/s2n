@@ -21,8 +21,10 @@ At the moment these tests are expected fail, as TLS13 is incomplete.
 import argparse
 import os
 import sys
-from multiprocessing.pool import ThreadPool
-from s2n_openssl_common import *
+
+from common.s2n_test_openssl import run_openssl_connection_test
+from common.s2n_test_scenario import get_scenarios, Mode, Cipher, Version
+
 
 def main():
     parser = argparse.ArgumentParser(description='Runs TLS1.3 minimal handshake integration tests against Openssl')
@@ -35,8 +37,8 @@ def main():
 
     failed = 0
 
-    print("\nRunning TLS1.3 handshake tests with openssl: %s" % os.popen('openssl version').read())
-    failed += run_scenarios(openssl_test(), get_scenarios(host, port, versions=[S2N_TLS13], s2n_modes=[Mode.client], ciphers=ALL_CIPHERS))
+    print("\n\tRunning TLS1.3 handshake tests with openssl: %s" % os.popen('openssl version').read())
+    failed += run_openssl_connection_test(get_scenarios(host, port, versions=[Version.TLS13], s2n_modes=[Mode.client], ciphers=Cipher.all()))
 
     return failed
 

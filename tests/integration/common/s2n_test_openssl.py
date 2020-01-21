@@ -17,30 +17,36 @@
 Common functions used to create test openssl servers and clients.
 """
 
-from s2n_test_common import *
+import common.s2n_test_common as util
+from common.s2n_test_scenario import Mode, Version
+from s2n_test_constants import TEST_ECDSA_CERT, TEST_ECDSA_KEY
+from time import sleep
+
 
 OPENSSL_SIGNALS = {
     Mode.client: "CONNECTED",
     Mode.server: "ACCEPT",
 }
 
+
 VERSION_ARGS = {
-    S2N_TLS10: "-tls1",
-    S2N_TLS11: "-tls1_1",
-    S2N_TLS12: "-tls1_2",
-    S2N_TLS13: "-tls1_3",
+    Version.TLS10: "-tls1",
+    Version.TLS11: "-tls1_1",
+    Version.TLS12: "-tls1_2",
+    Version.TLS13: "-tls1_3",
 }
+
 
 def get_openssl_cmd(scenario):
     openssl_cmd = [ "openssl"]
 
-    if scenario.s2n_mode is Mode.client:
+    if scenario.s2n_mode.is_client():
         openssl_cmd.extend(["s_server", "-accept", str(scenario.port)])
     else:
         openssl_cmd.extend(["s_client", "-connect", str(scenario.host) + ":" + str(scenario.port)])
 
-    openssl_cmd.extend(["-cert", CERT,
-                        "-key", KEY,
+    openssl_cmd.extend(["-cert", TEST_ECDSA_CERT,
+                        "-key", TEST_ECDSA_KEY,
                         "-tlsextdebug"])
 
     if scenario.version:
@@ -53,16 +59,20 @@ def get_openssl_cmd(scenario):
 
     return openssl_cmd
 
+
 def get_openssl(scenario):
     openssl_cmd = get_openssl_cmd(scenario)
-    openssl = get_process(openssl_cmd)
+    openssl = util.get_process(openssl_cmd)
     
-    if not wait_for_output(openssl, OPENSSL_SIGNALS[scenario.s2n_mode.other()]):
+    if not util.wait_for_output(openssl, OPENSSL_SIGNALS[scenario.s2n_mode.other()]):
         raise AssertionError("openssl %s: %s" % (scenario.s2n_mode.other(), get_error(openssl)))
 
-    sleep(2)
+    # Openssl outputs the success signal BEFORE binding the socket, so wait a little
+    sleep(0.1)
+
     return openssl
 
-def openssl_test(test_func=None):
-    return get_test(get_openssl, test_func)
+
+def run_openssl_connection_test(scenarios, test_func=None):
+    return util.run_connection_test(get_openssl, scenarios, test_func)
 
