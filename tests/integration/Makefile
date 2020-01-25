@@ -13,8 +13,10 @@
 # permissions and limitations under the License.
 #
 
-S2ND_PORT=8888
-S2ND_HOST=127.0.0.1
+S2ND_PORT_DEFAULT=8888
+S2ND_HOST_DEFAULT=127.0.0.1
+export S2ND_PORT=$(S2ND_PORT_DEFAULT)
+export S2ND_HOST=$(S2ND_HOST_DEFAULT)
 
 # If the libcrypto that s2n was built with is not specified, assume latest(1.1.1).
 # Required to determine the cipher suites to use in integration tests.
@@ -29,7 +31,21 @@ ifeq ($(S2N_CORKED_IO),true)
 endif
 
 .PHONY : all
-all: tls13 client_endpoints dynamic_record s_client s_server gnutls_cli gnutls_serv sslyze
+all: setup_python pytest client_endpoints dynamic_record s_client s_server gnutls_cli gnutls_serv sslyze
+
+setup_python:
+	# Bootstrap pytest requirements
+	python3 -m pip install --upgrade pip
+	python3 -m pip install --upgrade tox
+
+pytest: setup_python
+	# Run s2n client endpoint handshake tests
+	( \
+	DYLD_LIBRARY_PATH="../../lib/:../testlib/:$(LIBCRYPTO_ROOT)/lib:$$DYLD_LIBRARY_PATH" \
+	LD_LIBRARY_PATH="../../lib/:../testlib/:$(LIBCRYPTO_ROOT)/lib:$$LD_LIBRARY_PATH" \
+	S2N_INTEG_TEST=1 \
+	python3 -m tox; \
+	)
 
 tls13:
 	( \
@@ -37,7 +53,7 @@ tls13:
 	LD_LIBRARY_PATH="../../lib/:../testlib/:$(LIBCRYPTO_ROOT)/lib:$$LD_LIBRARY_PATH" \
 	S2N_INTEG_TEST=1 \
 	python3 s2n_tls13_handshake_tests.py $(S2ND_HOST) $(S2ND_PORT); \
-	)
+	)	
 
 client_endpoints:
 	# Run s2n client endpoint handshake tests
