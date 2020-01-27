@@ -18,6 +18,7 @@ Common functions to run s2n integration tests.
 """
 
 import os
+import pytest
 import subprocess
 import time
 from collections import defaultdict
@@ -54,8 +55,8 @@ class Version(int, Enum):
 
 
 class Mode(Enum):
-    client = object()
-    server = object()
+    client = 0
+    server = 1
 
     def inverse(self):
         return Mode.server if self is Mode.client else Mode.client
@@ -68,35 +69,47 @@ class Command(list):
         self._success_signals = success_signals
         super().__init__(cmd)
 
-    def connect(self, success_signal=None, line_limit=10):
+    def connect(self, success_signal=None, **kwargs):
         if not success_signal:
             success_signal = self._success_signals[self.mode]
 
-        connection = get_process(self)
+        self.process = get_process(self)
+        
+        if not self.wait_for_output(success_signal, **kwargs):
+            self.close()
+            assert False, str(self.mode) + ": " + self.get_error()
+        
+        return self.process
 
-        if not wait_for_output(connection, success_signal, line_limit=line_limit):
-            msg = "%s did not output '%s'." % (self.mode, success_signal)
-            error = get_error(connection)
-            if error:
-                msg += " Error: " + error
-            assert False, msg
+    def get_error(self, *args, **kwargs):
+        assert self.process
+        return get_error(self.process, *args, **kwargs)
 
-        return connection
+    def wait_for_output(self, *args, **kwargs):
+        assert self.process
+        return wait_for_output(self.process, *args, **kwargs)
 
     def negotiate(self, other_cmd):
-        client = self.connect() if self.mode is Mode.client else other_cmd.connect()
-        server = self.connect() if self.mode is Mode.server else other_cmd.connect()
-        return (client, server)
+        assert other_cmd.mode is self.mode.inverse()
 
-    @classmethod
-    def cleanup(cls, connection):
-        cleanup_processes(connection)
+        # Start the server, then the client.
+        if self.mode is Mode.client:
+            other_cmd.process = other_cmd.connect()
+            self.process = self.connect()
+            return (other_cmd.process, self.process)
+        else:
+            self.process = self.connect()
+            other_cmd.process = other_cmd.connect()
+            return (self.process, other_cmd.process)
+
+    def close(self):
+        cleanup_processes(self.process)
 
     def __str__(self):
         return " ".join(self)
 
 
-def get_error(process, line_limit=1):
+def get_error(process, line_limit=10):
     error_msg = ""
     for count in range(line_limit):
         line = process.stderr.readline().decode("utf-8")
@@ -108,12 +121,13 @@ def get_error(process, line_limit=1):
     return error_msg
 
 
-def wait_for_output(process, marker, line_limit=10):
+def wait_for_output(process, marker, line_limit=25):
     for count in range(line_limit):
         line = process.stdout.readline().decode("utf-8")
-        print("stdout: %s" % line)
         if marker in line:
             return True
+        if not line:
+            return False
     return False
 
 
@@ -136,4 +150,17 @@ class RetryBackoff:
         time.sleep(self._test_records[name])
         self._test_records[name] += self._step_size
         return True
+
+
+_port_counter = iter(range(8888, 65535))
+_ports_available = set()
+
+@pytest.fixture()
+def random_port():
+    try:
+        port = _ports_available.pop()
+    except KeyError:
+        port = next(_port_counter)
+    yield port
+    _ports_available.add(port)
 

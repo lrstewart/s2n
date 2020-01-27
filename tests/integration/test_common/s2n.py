@@ -53,7 +53,7 @@ def s2n_cmd(mode, endpoint, port=None, version=None, cipher_preferences=None, co
 
     cmd += [ endpoint ]
     if port:
-        cmd += [ port ]
+        cmd += [ str(port) ]
 
     return cmd
 

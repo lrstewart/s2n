@@ -27,13 +27,18 @@ class Cipher():
         self.fips_compatible = fips_compatible
 
     def valid_for(self, version):
+        # Connections can't user ciphers that require a higher version
         if version < self.min_version:
             return False
 
-        if self.min_version is Version.TLS13:
-            return version >= Version.TLS13
+        # TLS1.3 connections can't use pre-TLS1.3 ciphers
+        if version >= Version.TLS13:
+            return self.min_version >= Version.TLS13
 
         return True
+
+    def __repr__(self):
+        return "<Cipher: %s>" % self.name
 
     def __str__(self):
         return self.name
@@ -111,7 +116,7 @@ ALL_TEST_CIPHERS = [
 S2N_LIBCRYPTO_TO_TEST_CIPHERS = {
     Libcrypto.openssl_111         : Ciphers.all(),
     Libcrypto.openssl_102         : Ciphers.all().reject("CHACHA20", exact=False),
-    Libcrypto.openssl_111_fips    : Ciphers.all().fips_compatible(),
+    Libcrypto.openssl_102_fips    : Ciphers.all().fips_compatible(),
     Libcrypto.libressl            : Ciphers.all().reject("CHACHA20", exact=False),
 }
 

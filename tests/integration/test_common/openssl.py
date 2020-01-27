@@ -40,8 +40,8 @@ class OpensslCommand(Command):
     def __init__(self, mode, *args, **kwargs):
         super().__init__(mode, openssl_cmd(mode, *args, **kwargs), OPENSSL_SIGNALS)
 
-    def connect(mode, success_signal=None):
-        connection = super.connect(mode, success_signal)
+    def connect(self, success_signal=None, **kwargs):
+        connection = super().connect(success_signal, **kwargs)
 
         # Openssl outputs the success signal BEFORE binding the socket, so wait a little
         sleep(0.1)
@@ -53,9 +53,9 @@ def openssl_cmd(mode, endpoint, port=None,
     openssl_cmd = [ "openssl"]
 
     if mode is Mode.client:
-        openssl_cmd += [ "s_server", "-accept", str(port) ]
+        openssl_cmd += [ "s_client", "-connect", str(endpoint) + ":" + str(port) ]
     else:
-        openssl_cmd += [ "s_client", "-connect", str(host) + ":" + str(port) ]
+        openssl_cmd += [ "s_server", "-accept", str(port) ]
 
     openssl_cmd += [ "-cert", TEST_ECDSA_CERT,
                      "-key", TEST_ECDSA_KEY,
@@ -65,10 +65,10 @@ def openssl_cmd(mode, endpoint, port=None,
         openssl_cmd += [ VERSION_ARGS[version] ]
 
     if cipher:
-        if cipher.min_version >= Version.TLS13:
-            openssl_cmd += [ "-ciphersuites", str(cipher) ]
-        else:
+        if cipher.min_version < Version.TLS13:
             openssl_cmd += [ "-cipher", str(cipher) ]
+        else:
+            openssl_cmd += [ "-ciphersuites", str(cipher) ]
 
     if curve:
         openssl_cmd += [ "-curves", curve ]

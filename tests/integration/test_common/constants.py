@@ -31,7 +31,7 @@ S2ND = os.path.join(PROJECT_ROOT, "bin", "s2nd")
 
 
 DEFAULT_ENDPOINT = "127.0.0.1"
-DEFAULT_PORT = "8888"
+DEFAULT_PORT = 8888
 
 
 CERT_BUNDLE = os.path.join(INTEG_TEST_ROOT, "trust-store", "ca-bundle.crt")

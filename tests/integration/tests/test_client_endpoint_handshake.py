@@ -17,7 +17,7 @@ import collections
 
 from ..test_common.common import Mode, RetryBackoff
 from ..test_common.constants import CERT_BUNDLE
-from ..test_common.params import CORKED_IO_PARAM
+from ..test_common.params import ALL_CORKED_IO
 from ..test_common.s2n import S2NCommand
 
 
@@ -58,12 +58,12 @@ TEST_ENDPOINTS = [
              expected_cipher="ECDHE-SIKE-RSA-AES256-GCM-SHA384" ),
 ]
 
-ENDPOINT_PARAM = map(Endpoint.to_param, TEST_ENDPOINTS)
+ALL_TEST_ENDPOINTS = map(Endpoint.to_param, TEST_ENDPOINTS)
 
 
 @pytest.mark.flaky(max_runs=5, rerun_filter=RetryBackoff())
-@pytest.mark.parametrize("endpoint_config", ENDPOINT_PARAM)
-@pytest.mark.parametrize("use_corked_io",   CORKED_IO_PARAM)
+@pytest.mark.parametrize("endpoint_config", ALL_TEST_ENDPOINTS)
+@pytest.mark.parametrize("use_corked_io",   ALL_CORKED_IO)
 def test_endpoints(use_corked_io, endpoint_config):
     success_signal = "Cipher negotiated: " + endpoint_config.expected_cipher if endpoint_config.expected_cipher else None
 
@@ -72,5 +72,5 @@ def test_endpoints(use_corked_io, endpoint_config):
     s2n += [ "--ca-file", CERT_BUNDLE ] # Use a valid certificate chain
     s2n += [ "--alpn", "http/1.1"]
 
-    conn = s2n.connect(success_signal, line_limit=25)
-    s2n.cleanup(conn)
+    conn = s2n.connect(success_signal)
+    s2n.close()
