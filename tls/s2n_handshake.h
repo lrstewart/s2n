@@ -18,13 +18,13 @@
 #include <stdint.h>
 #include <s2n.h>
 
-#include "tls/s2n_cipher_suites.h"
 #include "tls/s2n_crypto.h"
 #include "tls/s2n_signature_algorithms.h"
 #include "tls/s2n_tls_parameters.h"
 
 #include "stuffer/s2n_stuffer.h"
 
+#include "crypto/s2n_certificate.h"
 #include "crypto/s2n_hash.h"
 
 /* This is the list of message types that we support */
@@ -84,8 +84,8 @@ struct s2n_handshake_parameters {
      *    - Client only supports RSA ciphers
      *    - certB will be selected.
      */
-    struct s2n_cert_chain_and_key *exact_sni_matches[S2N_AUTHENTICATION_METHOD_SENTINEL];
-    struct s2n_cert_chain_and_key *wc_sni_matches[S2N_AUTHENTICATION_METHOD_SENTINEL];
+    struct s2n_cert_chain_and_key *exact_sni_matches[S2N_CERT_TYPE_SENTINEL];
+    struct s2n_cert_chain_and_key *wc_sni_matches[S2N_CERT_TYPE_SENTINEL];
     uint8_t exact_sni_match_exists;
     uint8_t wc_sni_match_exists;
 };

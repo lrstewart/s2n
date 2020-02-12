@@ -40,10 +40,8 @@ static int inline is_cert_supported(struct s2n_connection *conn, s2n_pkey_type a
         s2n_authentication_method expected_auth_method = conn->secure.cipher_suite->auth_method;
         switch (actual_cert_type) {
         case S2N_PKEY_TYPE_RSA:
-            S2N_ERROR_IF(expected_auth_method != S2N_AUTHENTICATION_RSA, S2N_ERR_CERT_TYPE_UNSUPPORTED);
-            break;
         case S2N_PKEY_TYPE_RSA_PSS:
-            S2N_ERROR_IF(expected_auth_method != S2N_AUTHENTICATION_RSA_PSS, S2N_ERR_CERT_TYPE_UNSUPPORTED);
+            S2N_ERROR_IF(expected_auth_method != S2N_AUTHENTICATION_RSA, S2N_ERR_CERT_TYPE_UNSUPPORTED);
             break;
         case S2N_PKEY_TYPE_ECDSA:
             S2N_ERROR_IF(expected_auth_method != S2N_AUTHENTICATION_ECDSA, S2N_ERR_CERT_TYPE_UNSUPPORTED);

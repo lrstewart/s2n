@@ -41,12 +41,12 @@ static int try_handshake(struct s2n_connection *server_conn, struct s2n_connecti
     int tries = 0;
     do {
         int client_rc = s2n_negotiate(client_conn, &client_blocked);
-        if (!(client_rc == 0 || (client_blocked && errno == EAGAIN))) {
+        if (!(client_rc == 0 || (client_blocked && s2n_errno == S2N_ERR_BLOCKED))) {
             return -1;
         }
 
         int server_rc = s2n_negotiate(server_conn, &server_blocked);
-        if (!(server_rc == 0 || (server_blocked && errno == EAGAIN) || server_blocked == S2N_BLOCKED_ON_APPLICATION_INPUT)) {
+        if (!(server_rc == 0 || (server_blocked && s2n_errno == S2N_ERR_BLOCKED) || server_blocked == S2N_BLOCKED_ON_APPLICATION_INPUT)) {
             return -1;
         }
 
@@ -272,7 +272,6 @@ int main(int argc, char **argv)
         free(cert_chain_pem);
         free(private_key_pem);
         free(dhparams_pem);
-
     }
 
     END_TEST();

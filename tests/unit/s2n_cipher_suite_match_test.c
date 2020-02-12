@@ -194,7 +194,7 @@ int main(int argc, char **argv)
         EXPECT_SUCCESS(s2n_connection_set_config(conn, server_config));
 
         /* TEST RSA */
-        EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers, cipher_count));
+        EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers, cipher_count));
         EXPECT_EQUAL(conn->secure_renegotiation, 0);
         conn->actual_protocol_version = S2N_TLS10;
         EXPECT_EQUAL(1, s2n_connection_is_valid_for_cipher_preferences(conn, "test_all"));
@@ -202,7 +202,7 @@ int main(int argc, char **argv)
         EXPECT_SUCCESS(s2n_connection_wipe(conn));
 
         /* TEST RENEGOTIATION */
-        EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers_renegotiation, cipher_count_renegotiation));
+        EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers_renegotiation, cipher_count_renegotiation));
         EXPECT_EQUAL(conn->secure_renegotiation, 1);
         conn->actual_protocol_version = S2N_TLS12;
         EXPECT_EQUAL(1, s2n_connection_is_valid_for_cipher_preferences(conn, "test_all"));
@@ -211,7 +211,7 @@ int main(int argc, char **argv)
 
         /* Simulate a TLSv11 client to trigger the fallback error */
         conn->client_protocol_version = S2N_TLS11;
-        EXPECT_FAILURE(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers_fallback, cipher_count_fallback));
+        EXPECT_FAILURE(s2n_set_cipher_as_tls_server(conn, wire_ciphers_fallback, cipher_count_fallback));
         EXPECT_EQUAL(conn->secure_renegotiation, 0);
         conn->actual_protocol_version = S2N_TLS11;
         EXPECT_EQUAL(1, s2n_connection_is_valid_for_cipher_preferences(conn, "null"));
@@ -225,7 +225,7 @@ int main(int argc, char **argv)
         /* Shouldn't be necessary unless the test fails, but we want the failure to be obvious. */
         conn->secure.server_ecc_evp_params.negotiated_curve = s2n_ecc_evp_supported_curves_list[0];
         const uint8_t expected_rsa_wire_choice[] = { TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA };
-        EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
+        EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
         EXPECT_EQUAL(conn->secure_renegotiation, 0);
         EXPECT_EQUAL(conn->secure.cipher_suite, s2n_cipher_suite_from_wire(expected_rsa_wire_choice));
         EXPECT_SUCCESS(s2n_connection_wipe(conn));
@@ -244,7 +244,7 @@ int main(int argc, char **argv)
         conn->secure.server_ecc_evp_params.negotiated_curve = s2n_ecc_evp_supported_curves_list[0];
         conn->secure.client_pq_kem_extension.data = client_extensions_data;
         conn->secure.client_pq_kem_extension.size = client_extensions_len;
-        EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers, cipher_count));
+        EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers, cipher_count));
         EXPECT_EQUAL(conn->secure.cipher_suite, s2n_cipher_suite_from_wire(expected_pq_wire_choice));
         EXPECT_SUCCESS(s2n_connection_wipe(conn));
 
@@ -258,7 +258,7 @@ int main(int argc, char **argv)
             conn->secure.server_ecc_evp_params.negotiated_curve = s2n_ecc_evp_supported_curves_list[0];
             conn->secure.client_pq_kem_extension.data = client_extensions_data;
             conn->secure.client_pq_kem_extension.size = client_extensions_len;
-            EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers, cipher_count));
+            EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers, cipher_count));
             EXPECT_EQUAL(conn->secure.cipher_suite, s2n_cipher_suite_from_wire(expected_classic_wire_choice));
             EXPECT_SUCCESS(s2n_connection_wipe(conn));
         }
@@ -276,7 +276,7 @@ int main(int argc, char **argv)
         const uint8_t expected_ecdsa_wire_choice[] = { TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256 };
         /* Assume default for negotiated curve. */
         conn->secure.server_ecc_evp_params.negotiated_curve = s2n_ecc_evp_supported_curves_list[0];
-        EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
+        EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
         EXPECT_EQUAL(conn->secure_renegotiation, 0);
         EXPECT_EQUAL(conn->secure.cipher_suite, s2n_cipher_suite_from_wire(expected_ecdsa_wire_choice));
         EXPECT_SUCCESS(s2n_connection_wipe(conn));
@@ -285,7 +285,7 @@ int main(int argc, char **argv)
         s2n_connection_set_cipher_preferences(conn, "test_all");
         /* Assume default for negotiated curve. */
         conn->secure.server_ecc_evp_params.negotiated_curve = s2n_ecc_evp_supported_curves_list[0];
-        EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
+        EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
         EXPECT_EQUAL(conn->secure_renegotiation, 0);
         EXPECT_EQUAL(conn->secure.cipher_suite, s2n_cipher_suite_from_wire(expected_ecdsa_wire_choice));
         EXPECT_SUCCESS(s2n_connection_wipe(conn));
@@ -304,9 +304,8 @@ int main(int argc, char **argv)
             s2n_connection_set_cipher_preferences(conn, "test_ecdsa_priority");
             conn->secure.server_ecc_evp_params.negotiated_curve = s2n_ecc_evp_supported_curves_list[0];
             EXPECT_SUCCESS(s2n_connection_set_config(conn, server_config));
-            EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
+            EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
             EXPECT_EQUAL(conn->secure_renegotiation, 0);
-            EXPECT_EQUAL(conn->handshake_params.our_chain_and_key, ecdsa_cert);
             EXPECT_EQUAL(conn->secure.cipher_suite, s2n_cipher_suite_from_wire(expected_wire_choice));
             EXPECT_SUCCESS(s2n_connection_wipe(conn));
         }
@@ -317,9 +316,8 @@ int main(int argc, char **argv)
             s2n_connection_set_cipher_preferences(conn, "test_all");
             conn->secure.server_ecc_evp_params.negotiated_curve = s2n_ecc_evp_supported_curves_list[0];
             EXPECT_SUCCESS(s2n_connection_set_config(conn, server_config));
-            EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
+            EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
             EXPECT_EQUAL(conn->secure_renegotiation, 0);
-            EXPECT_EQUAL(conn->handshake_params.our_chain_and_key, rsa_cert);
             EXPECT_EQUAL(conn->secure.cipher_suite, s2n_cipher_suite_from_wire(expected_wire_choice));
             EXPECT_SUCCESS(s2n_connection_wipe(conn));
         }
@@ -333,9 +331,8 @@ int main(int argc, char **argv)
             s2n_connection_set_cipher_preferences(conn, "20170328");
             conn->secure.server_ecc_evp_params.negotiated_curve = s2n_ecc_evp_supported_curves_list[0];
             EXPECT_SUCCESS(s2n_connection_set_config(conn, server_config));
-            EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
+            EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
             EXPECT_EQUAL(conn->secure_renegotiation, 0);
-            EXPECT_EQUAL(conn->handshake_params.our_chain_and_key, rsa_cert);
             EXPECT_EQUAL(conn->secure.cipher_suite, s2n_cipher_suite_from_wire(expected_wire_choice));
             EXPECT_SUCCESS(s2n_connection_wipe(conn));
         }
@@ -348,9 +345,8 @@ int main(int argc, char **argv)
             s2n_connection_set_cipher_preferences(conn, "test_all_ecdsa");
             conn->secure.server_ecc_evp_params.negotiated_curve = s2n_ecc_evp_supported_curves_list[0];
             EXPECT_SUCCESS(s2n_connection_set_config(conn, server_config));
-            EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
+            EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
             EXPECT_EQUAL(conn->secure_renegotiation, 0);
-            EXPECT_EQUAL(conn->handshake_params.our_chain_and_key, ecdsa_cert);
             EXPECT_EQUAL(conn->secure.cipher_suite, s2n_cipher_suite_from_wire(expected_wire_choice));
             EXPECT_SUCCESS(s2n_connection_wipe(conn));
         }
@@ -363,9 +359,8 @@ int main(int argc, char **argv)
             s2n_connection_set_cipher_preferences(conn, "test_ecdsa_priority");
             conn->secure.server_ecc_evp_params.negotiated_curve = s2n_ecc_evp_supported_curves_list[0];
             EXPECT_SUCCESS(s2n_connection_set_config(conn, server_config));
-            EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers, cipher_count));
+            EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers, cipher_count));
             EXPECT_EQUAL(conn->secure_renegotiation, 0);
-            EXPECT_EQUAL(conn->handshake_params.our_chain_and_key, rsa_cert);
             EXPECT_EQUAL(conn->secure.cipher_suite, s2n_cipher_suite_from_wire(expected_wire_choice));
             EXPECT_SUCCESS(s2n_connection_wipe(conn));
         }
@@ -378,9 +373,8 @@ int main(int argc, char **argv)
             s2n_connection_set_cipher_preferences(conn, "test_ecdsa_priority");
             conn->secure.server_ecc_evp_params.negotiated_curve = s2n_ecc_evp_supported_curves_list[0];
             EXPECT_SUCCESS(s2n_connection_set_config(conn, server_config));
-            EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers_only_ecdsa, cipher_count_only_ecdsa));
+            EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers_only_ecdsa, cipher_count_only_ecdsa));
             EXPECT_EQUAL(conn->secure_renegotiation, 0);
-            EXPECT_EQUAL(conn->handshake_params.our_chain_and_key, ecdsa_cert);
             EXPECT_EQUAL(conn->secure.cipher_suite, s2n_cipher_suite_from_wire(expected_wire_choice));
             EXPECT_SUCCESS(s2n_connection_wipe(conn));
         }
@@ -398,9 +392,8 @@ int main(int argc, char **argv)
             /* No shared curve */
             conn->secure.server_ecc_evp_params.negotiated_curve = NULL;
             EXPECT_SUCCESS(s2n_connection_set_config(conn, server_config));
-            EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers_rsa_fallback, cipher_count_rsa_fallback));
+            EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers_rsa_fallback, cipher_count_rsa_fallback));
             EXPECT_EQUAL(conn->secure_renegotiation, 0);
-            EXPECT_EQUAL(conn->handshake_params.our_chain_and_key, rsa_cert);
             EXPECT_EQUAL(conn->secure.cipher_suite, s2n_cipher_suite_from_wire(expected_wire_choice));
             EXPECT_SUCCESS(s2n_connection_wipe(conn));
         }
@@ -419,9 +412,8 @@ int main(int argc, char **argv)
             s2n_connection_set_cipher_preferences(conn, "test_ecdsa_priority");
             conn->secure.server_ecc_evp_params.negotiated_curve = s2n_ecc_evp_supported_curves_list[0];
             EXPECT_SUCCESS(s2n_connection_set_config(conn, server_config));
-            EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
+            EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
             EXPECT_EQUAL(conn->secure_renegotiation, 0);
-            EXPECT_EQUAL(conn->handshake_params.our_chain_and_key, rsa_cert);
             EXPECT_EQUAL(conn->secure.cipher_suite, s2n_cipher_suite_from_wire(expected_wire_choice));
             EXPECT_SUCCESS(s2n_connection_wipe(conn));
         }
@@ -436,9 +428,8 @@ int main(int argc, char **argv)
             s2n_connection_set_cipher_preferences(conn, "test_all");
             conn->secure.server_ecc_evp_params.negotiated_curve = s2n_ecc_evp_supported_curves_list[0];
             EXPECT_SUCCESS(s2n_connection_set_config(conn, server_config));
-            EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
+            EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
             EXPECT_EQUAL(conn->secure_renegotiation, 0);
-            EXPECT_EQUAL(conn->handshake_params.our_chain_and_key, ecdsa_cert);
             EXPECT_EQUAL(conn->secure.cipher_suite, s2n_cipher_suite_from_wire(expected_wire_choice));
             EXPECT_SUCCESS(s2n_connection_wipe(conn));
         }
@@ -453,9 +444,8 @@ int main(int argc, char **argv)
             s2n_connection_set_cipher_preferences(conn, "test_ecdsa_priority");
             conn->secure.server_ecc_evp_params.negotiated_curve = s2n_ecc_evp_supported_curves_list[0];
             EXPECT_SUCCESS(s2n_connection_set_config(conn, server_config));
-            EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
+            EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
             EXPECT_EQUAL(conn->secure_renegotiation, 0);
-            EXPECT_EQUAL(conn->handshake_params.our_chain_and_key, ecdsa_cert);
             EXPECT_EQUAL(conn->secure.cipher_suite, s2n_cipher_suite_from_wire(expected_wire_choice));
             EXPECT_SUCCESS(s2n_connection_wipe(conn));
         }
@@ -477,9 +467,8 @@ int main(int argc, char **argv)
             s2n_connection_set_cipher_preferences(conn, "test_all");
             conn->secure.server_ecc_evp_params.negotiated_curve = s2n_ecc_evp_supported_curves_list[0];
             EXPECT_SUCCESS(s2n_connection_set_config(conn, server_config));
-            EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
+            EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers_with_ecdsa, cipher_count_ecdsa));
             EXPECT_EQUAL(conn->secure_renegotiation, 0);
-            EXPECT_EQUAL(conn->handshake_params.our_chain_and_key, rsa_cert);
             EXPECT_EQUAL(conn->secure.cipher_suite, s2n_cipher_suite_from_wire(expected_wire_choice));
             EXPECT_SUCCESS(s2n_connection_wipe(conn));
         }
@@ -498,7 +487,7 @@ int main(int argc, char **argv)
             s2n_connection_set_cipher_preferences(conn, "test_all");
             conn->client_protocol_version = S2N_TLS13;
             conn->actual_protocol_version = S2N_TLS12;
-            EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers_with_tls13, cipher_count_tls13));
+            EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers_with_tls13, cipher_count_tls13));
             EXPECT_EQUAL(conn->secure.cipher_suite, tls12_cipher_suite);
             EXPECT_SUCCESS(s2n_connection_wipe(conn));
         }
@@ -510,7 +499,7 @@ int main(int argc, char **argv)
             s2n_connection_set_cipher_preferences(conn, "default_tls13");
             conn->client_protocol_version = S2N_TLS13;
             conn->actual_protocol_version = S2N_TLS13;
-            EXPECT_SUCCESS(s2n_set_cipher_and_cert_as_tls_server(conn, wire_ciphers_with_tls13, cipher_count_tls13));
+            EXPECT_SUCCESS(s2n_set_cipher_as_tls_server(conn, wire_ciphers_with_tls13, cipher_count_tls13));
             EXPECT_EQUAL(conn->secure.cipher_suite, s2n_cipher_suite_from_wire(expected_wire_choice));
             EXPECT_SUCCESS(s2n_connection_wipe(conn));
         }

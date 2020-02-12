@@ -54,18 +54,14 @@ struct s2n_cert_chain_and_key {
 };
 
 typedef enum {
-    S2N_AUTHENTICATION_RSA = 0,
-    S2N_AUTHENTICATION_ECDSA,
-    S2N_AUTHENTICATION_RSA_PSS,
-    S2N_AUTHENTICATION_METHOD_SENTINEL
-} s2n_authentication_method;
+    S2N_CERT_TYPE_RSA = 0,
+    S2N_CERT_TYPE_ECDSA,
+    S2N_CERT_TYPE_RSA_PSS,
+    S2N_CERT_TYPE_SENTINEL
+} s2n_cert_type_t;
 
-/* Used by TLS 1.3 CipherSuites (Eg TLS_AES_128_GCM_SHA256 "0x1301") where the Auth method will be specified by the
- * SignatureScheme Extension, not the CipherSuite. */
-#define S2N_AUTHENTICATION_METHOD_TLS13     S2N_AUTHENTICATION_METHOD_SENTINEL
-
-struct auth_method_to_cert_value {
-    struct s2n_cert_chain_and_key *certs[S2N_AUTHENTICATION_METHOD_SENTINEL];
+struct certs_by_type {
+    struct s2n_cert_chain_and_key *certs[S2N_CERT_TYPE_SENTINEL];
 };
 
 int s2n_cert_chain_and_key_set_ocsp_data(struct s2n_cert_chain_and_key *chain_and_key, const uint8_t *data, uint32_t length);
@@ -83,5 +79,4 @@ int s2n_create_cert_chain_from_stuffer(struct s2n_cert_chain *cert_chain_out, st
 int s2n_cert_chain_and_key_set_cert_chain(struct s2n_cert_chain_and_key *cert_and_key, const char *cert_chain_pem);
 int s2n_cert_chain_and_key_set_private_key(struct s2n_cert_chain_and_key *cert_and_key, const char *private_key_pem);
 
-s2n_authentication_method s2n_cert_chain_and_key_get_auth_method(struct s2n_cert_chain_and_key *chain_and_key);
-
+s2n_cert_type_t s2n_cert_chain_and_key_get_cert_type(struct s2n_cert_chain_and_key *chain_and_key);
