@@ -1012,24 +1012,6 @@ static int s2n_wire_ciphers_contain(const uint8_t * match, const uint8_t * wire,
     return 0;
 }
 
-/* Find the optimal certificate that is compatible with a cipher.
- * The priority of set of certificates to choose from:
- * 1. Certificates that match the client's ServerName extension.
- * 2. Default certificates
- */
-struct s2n_cert_chain_and_key *s2n_conn_get_compatible_cert_chain_and_key(struct s2n_connection *conn, const s2n_cert_type_t cert_type)
-{
-    if (conn->handshake_params.exact_sni_match_exists) {
-        /* This may return NULL if there was an SNI match, but not a match the cipher_suite's authentication type. */
-        return conn->handshake_params.exact_sni_matches[cert_type];
-    } if (conn->handshake_params.wc_sni_match_exists) {
-        return conn->handshake_params.wc_sni_matches[cert_type];
-    } else {
-        /* We don't have any name matches. Use the default certificate that works with the key type. */
-        return conn->config->default_certs_by_type.certs[cert_type];
-    }
-}
-
 static int s2n_set_cipher_as_server(struct s2n_connection *conn, uint8_t * wire, uint32_t count, uint32_t cipher_suite_len)
 {
     uint8_t renegotiation_info_scsv[S2N_TLS_CIPHER_SUITE_LEN] = { TLS_EMPTY_RENEGOTIATION_INFO_SCSV };

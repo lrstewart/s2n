@@ -96,7 +96,7 @@ static int s2n_certs_exist_for_sig_alg(struct s2n_connection *conn, s2n_signatur
     s2n_cert_type_t cert_type;
     s2n_cert_type_for_sig_alg(sig_alg, &cert_type);
 
-    if (s2n_conn_get_compatible_cert_chain_and_key(conn, cert_type) != NULL) {
+    if (s2n_get_compatible_cert_chain_and_key(conn, cert_type) != NULL) {
         return S2N_SUCCESS;
     }
     return S2N_FAILURE;
@@ -113,7 +113,7 @@ int s2n_certs_exist_for_auth_method(struct s2n_connection *conn, s2n_authenticat
             continue;
         }
 
-        if (s2n_conn_get_compatible_cert_chain_and_key(conn, i) != NULL) {
+        if (s2n_get_compatible_cert_chain_and_key(conn, i) != NULL) {
             return S2N_SUCCESS;
         }
     }
@@ -149,7 +149,7 @@ int s2n_select_certs_for_auth(struct s2n_connection *conn, s2n_signature_algorit
     s2n_cert_type_t cert_type;
     GUARD(s2n_cert_type_for_sig_alg(sig_alg, &cert_type));
 
-    *chosen_certs = s2n_conn_get_compatible_cert_chain_and_key(conn, cert_type);
+    *chosen_certs = s2n_get_compatible_cert_chain_and_key(conn, cert_type);
     notnull_check(chosen_certs);
 
     return 0;

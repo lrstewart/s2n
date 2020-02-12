@@ -275,3 +275,20 @@ int s2n_conn_find_name_matching_certs(struct s2n_connection *conn)
     return 0;
 }
 
+/* Find the optimal certificate of a specific type.
+ * The priority of set of certificates to choose from:
+ * 1. Certificates that match the client's ServerName extension.
+ * 2. Default certificates
+ */
+struct s2n_cert_chain_and_key *s2n_get_compatible_cert_chain_and_key(struct s2n_connection *conn, const s2n_cert_type_t cert_type)
+{
+    if (conn->handshake_params.exact_sni_match_exists) {
+        /* This may return NULL if there was an SNI match, but not a match the cipher_suite's authentication type. */
+        return conn->handshake_params.exact_sni_matches[cert_type];
+    } if (conn->handshake_params.wc_sni_match_exists) {
+        return conn->handshake_params.wc_sni_matches[cert_type];
+    } else {
+        /* We don't have any name matches. Use the default certificate that works with the key type. */
+        return conn->config->default_certs_by_type.certs[cert_type];
+    }
+}
