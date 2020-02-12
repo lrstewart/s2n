@@ -280,7 +280,7 @@ int s2n_conn_find_name_matching_certs(struct s2n_connection *conn)
  * 1. Certificates that match the client's ServerName extension.
  * 2. Default certificates
  */
-struct s2n_cert_chain_and_key *s2n_get_compatible_cert_chain_and_key(struct s2n_connection *conn, const s2n_cert_type_t cert_type)
+struct s2n_cert_chain_and_key *s2n_get_compatible_cert_chain_and_key(struct s2n_connection *conn, const s2n_certificate_type cert_type)
 {
     if (conn->handshake_params.exact_sni_match_exists) {
         /* This may return NULL if there was an SNI match, but not a match the cipher_suite's authentication type. */

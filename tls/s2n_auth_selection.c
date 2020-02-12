@@ -38,7 +38,7 @@
  * we've chosen a signature algorithm. This allows us to use RSA-PSS with TLS1.2.
  */
 
-static int s2n_auth_method_for_cert_type(s2n_cert_type_t cert_type, s2n_authentication_method *auth_method) {
+static int s2n_auth_method_for_cert_type(s2n_certificate_type cert_type, s2n_authentication_method *auth_method) {
     switch(cert_type) {
         case S2N_CERT_TYPE_RSA:
         case S2N_CERT_TYPE_RSA_PSS:
@@ -53,7 +53,7 @@ static int s2n_auth_method_for_cert_type(s2n_cert_type_t cert_type, s2n_authenti
     return S2N_FAILURE;
 }
 
-static int s2n_cert_type_for_sig_alg(s2n_signature_algorithm sig_alg, s2n_cert_type_t *cert_type) {
+static int s2n_cert_type_for_sig_alg(s2n_signature_algorithm sig_alg, s2n_certificate_type *cert_type) {
     switch(sig_alg) {
         case S2N_SIGNATURE_RSA_PSS_RSAE:
         case S2N_SIGNATURE_RSA:
@@ -72,7 +72,7 @@ static int s2n_cert_type_for_sig_alg(s2n_signature_algorithm sig_alg, s2n_cert_t
 }
 
 static int s2n_sig_alg_valid_for_cipher_suite(s2n_signature_algorithm sig_alg, struct s2n_cipher_suite *cipher_suite) {
-    s2n_cert_type_t cert_type;
+    s2n_certificate_type cert_type;
     GUARD(s2n_cert_type_for_sig_alg(sig_alg, &cert_type));
 
     /* RSA-PSS only supports Sign/Verify, and not Encrypt/Decrypt, which means that it MUST be used with an
@@ -93,7 +93,7 @@ static int s2n_sig_alg_valid_for_cipher_suite(s2n_signature_algorithm sig_alg, s
 static int s2n_certs_exist_for_sig_alg(struct s2n_connection *conn, s2n_signature_algorithm sig_alg) {
     ne_check(sig_alg, S2N_SIGNATURE_ANONYMOUS);
 
-    s2n_cert_type_t cert_type;
+    s2n_certificate_type cert_type;
     s2n_cert_type_for_sig_alg(sig_alg, &cert_type);
 
     if (s2n_get_compatible_cert_chain_and_key(conn, cert_type) != NULL) {
@@ -146,7 +146,7 @@ int s2n_sig_alg_valid_for_auth(struct s2n_connection *conn, s2n_signature_algori
 
 int s2n_select_certs_for_auth(struct s2n_connection *conn, s2n_signature_algorithm sig_alg, struct s2n_cert_chain_and_key **chosen_certs)
 {
-    s2n_cert_type_t cert_type;
+    s2n_certificate_type cert_type;
     GUARD(s2n_cert_type_for_sig_alg(sig_alg, &cert_type));
 
     *chosen_certs = s2n_get_compatible_cert_chain_and_key(conn, cert_type);

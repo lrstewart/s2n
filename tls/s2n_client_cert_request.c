@@ -28,7 +28,7 @@
 #include "utils/s2n_safety.h"
 #include "utils/s2n_array.h"
 
-static int s2n_cert_type_to_pkey_type(s2n_cert_type cert_type_in, s2n_pkey_type *pkey_type_out) {
+static int s2n_certificate_type_to_pkey_type(s2n_cert_type cert_type_in, s2n_pkey_type *pkey_type_out) {
     switch(cert_type_in) {
         case S2N_CERT_TYPE_RSA_SIGN:
             *pkey_type_out = S2N_PKEY_TYPE_RSA;
@@ -58,7 +58,7 @@ int s2n_client_cert_req_recv(struct s2n_connection *conn)
 
     s2n_cert_type cert_type = 0;
     GUARD(s2n_recv_client_cert_preferences(in, &cert_type));
-    GUARD(s2n_cert_type_to_pkey_type(cert_type, &conn->secure.client_cert_pkey_type));
+    GUARD(s2n_certificate_type_to_pkey_type(cert_type, &conn->secure.client_cert_pkey_type));
 
     if (conn->actual_protocol_version == S2N_TLS12) {
         GUARD(s2n_recv_supported_sig_scheme_list(in, &conn->handshake_params.server_sig_hash_algs));

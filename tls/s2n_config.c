@@ -160,7 +160,7 @@ static int s2n_config_update_domain_name_to_cert_map(struct s2n_config *config,
         return 0;
     }
     struct s2n_blob s2n_map_value = { 0 };
-    s2n_cert_type_t cert_type = s2n_cert_chain_and_key_get_cert_type(cert_key_pair);
+    s2n_certificate_type cert_type = s2n_cert_chain_and_key_get_cert_type(cert_key_pair);
     if (s2n_map_lookup(domain_name_to_cert_map, name, &s2n_map_value) == 0) {
         struct certs_by_type value = {{ 0 }};
         value.certs[cert_type] = cert_key_pair;
@@ -513,7 +513,7 @@ int s2n_config_add_cert_chain_and_key_to_store(struct s2n_config *config, struct
     if (!config->default_certs_are_explicit) {
         /* Attempt to auto set default based on ordering. ie: first RSA cert is the default, first ECDSA cert is the
          * default, etc. */
-        s2n_cert_type_t cert_type = s2n_cert_chain_and_key_get_cert_type(cert_key_pair);
+        s2n_certificate_type cert_type = s2n_cert_chain_and_key_get_cert_type(cert_key_pair);
         if (config->default_certs_by_type.certs[cert_type] == NULL) {
             config->default_certs_by_type.certs[cert_type] = cert_key_pair;
         }
@@ -544,14 +544,14 @@ int s2n_config_set_cert_chain_and_key_defaults(struct s2n_config *config,
     struct certs_by_type new_defaults = {{ 0 }};
     for (int i = 0; i < num_cert_key_pairs; i++) {
         notnull_check(cert_key_pairs[i]);
-        s2n_cert_type_t cert_type = s2n_cert_chain_and_key_get_cert_type(cert_key_pairs[i]);
+        s2n_certificate_type cert_type = s2n_cert_chain_and_key_get_cert_type(cert_key_pairs[i]);
         S2N_ERROR_IF(new_defaults.certs[cert_type] != NULL, S2N_ERR_MULTIPLE_DEFAULT_CERTIFICATES_PER_AUTH_TYPE);
         new_defaults.certs[cert_type] = cert_key_pairs[i];
     }
 
     GUARD(s2n_config_clear_default_certificates(config));
     for (int i = 0; i < num_cert_key_pairs; i++) {
-        s2n_cert_type_t cert_type = s2n_cert_chain_and_key_get_cert_type(cert_key_pairs[i]);
+        s2n_certificate_type cert_type = s2n_cert_chain_and_key_get_cert_type(cert_key_pairs[i]);
         config->default_certs_by_type.certs[cert_type] = cert_key_pairs[i];
     }
 

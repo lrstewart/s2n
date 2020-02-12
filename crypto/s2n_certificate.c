@@ -29,7 +29,7 @@
 #include "utils/s2n_safety.h"
 #include "utils/s2n_mem.h"
 
-const s2n_cert_type_t pkey_type_to_cert_type[] = {
+const s2n_certificate_type pkey_type_to_cert_type[] = {
     [S2N_PKEY_TYPE_RSA] = S2N_CERT_TYPE_RSA,
     [S2N_PKEY_TYPE_RSA_PSS] = S2N_CERT_TYPE_RSA_PSS,
     [S2N_PKEY_TYPE_ECDSA] = S2N_CERT_TYPE_ECDSA,
@@ -486,7 +486,7 @@ void *s2n_cert_chain_and_key_get_ctx(struct s2n_cert_chain_and_key *cert_and_key
     return cert_and_key->context;
 }
 
-s2n_cert_type_t s2n_cert_chain_and_key_get_cert_type(struct s2n_cert_chain_and_key *chain_and_key)
+s2n_certificate_type s2n_cert_chain_and_key_get_cert_type(struct s2n_cert_chain_and_key *chain_and_key)
 {
     return pkey_type_to_cert_type[chain_and_key->cert_chain->head->pkey_type];
 }

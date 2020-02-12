@@ -58,7 +58,7 @@ typedef enum {
     S2N_CERT_TYPE_ECDSA,
     S2N_CERT_TYPE_RSA_PSS,
     S2N_CERT_TYPE_SENTINEL
-} s2n_cert_type_t;
+} s2n_certificate_type;
 
 struct certs_by_type {
     struct s2n_cert_chain_and_key *certs[S2N_CERT_TYPE_SENTINEL];
@@ -79,4 +79,4 @@ int s2n_create_cert_chain_from_stuffer(struct s2n_cert_chain *cert_chain_out, st
 int s2n_cert_chain_and_key_set_cert_chain(struct s2n_cert_chain_and_key *cert_and_key, const char *cert_chain_pem);
 int s2n_cert_chain_and_key_set_private_key(struct s2n_cert_chain_and_key *cert_and_key, const char *private_key_pem);
 
-s2n_cert_type_t s2n_cert_chain_and_key_get_cert_type(struct s2n_cert_chain_and_key *chain_and_key);
+s2n_certificate_type s2n_cert_chain_and_key_get_cert_type(struct s2n_cert_chain_and_key *chain_and_key);
