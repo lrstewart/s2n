@@ -48,9 +48,8 @@ static int s2n_auth_method_for_cert_type(s2n_certificate_type cert_type, s2n_aut
             *auth_method = S2N_AUTHENTICATION_ECDSA;
             return S2N_SUCCESS;
         default:
-            return S2N_FAILURE;
+            S2N_ERROR(S2N_ERR_CERT_TYPE_UNSUPPORTED);
     }
-    return S2N_FAILURE;
 }
 
 static int s2n_cert_type_for_sig_alg(s2n_signature_algorithm sig_alg, s2n_certificate_type *cert_type) {
@@ -66,9 +65,8 @@ static int s2n_cert_type_for_sig_alg(s2n_signature_algorithm sig_alg, s2n_certif
             *cert_type = S2N_CERT_TYPE_RSA_PSS;
             return S2N_SUCCESS;
         default:
-            return S2N_FAILURE;
+            S2N_ERROR(S2N_ERR_CERT_TYPE_UNSUPPORTED);
     }
-    return S2N_FAILURE;
 }
 
 static int s2n_sig_alg_valid_for_cipher_suite(s2n_signature_algorithm sig_alg, struct s2n_cipher_suite *cipher_suite) {
@@ -77,7 +75,7 @@ static int s2n_sig_alg_valid_for_cipher_suite(s2n_signature_algorithm sig_alg, s
 
     /* RSA-PSS only supports Sign/Verify, and not Encrypt/Decrypt, which means that it MUST be used with an
      * ephemeral Key Exchange Algorithm. */
-    if (cipher_suite->key_exchange_alg != NULL && cipher_suite->key_exchange_alg->is_ephemeral) {
+    if (cipher_suite->key_exchange_alg != NULL && !cipher_suite->key_exchange_alg->is_ephemeral) {
         ne_check(cert_type, S2N_CERT_TYPE_RSA_PSS);
     }
 
@@ -99,17 +97,15 @@ static int s2n_certs_exist_for_sig_alg(struct s2n_connection *conn, s2n_signatur
     if (s2n_get_compatible_cert_chain_and_key(conn, cert_type) != NULL) {
         return S2N_SUCCESS;
     }
-    return S2N_FAILURE;
+    S2N_ERROR(S2N_ERR_CERT_TYPE_UNSUPPORTED);
 }
 
-int s2n_certs_exist_for_auth_method(struct s2n_connection *conn, s2n_authentication_method auth_method) {
-    ne_check(auth_method, S2N_AUTHENTICATION_METHOD_SENTINEL);
-
+static int s2n_certs_exist_for_auth_method(struct s2n_connection *conn, s2n_authentication_method auth_method) {
     s2n_authentication_method auth_method_for_cert_type;
     for(int i = 0; i < S2N_CERT_TYPE_SENTINEL; i++) {
         GUARD(s2n_auth_method_for_cert_type(i, &auth_method_for_cert_type));
 
-        if (auth_method_for_cert_type != auth_method) {
+        if (auth_method != S2N_AUTHENTICATION_METHOD_SENTINEL && auth_method != auth_method_for_cert_type) {
             continue;
         }
 
@@ -117,18 +113,16 @@ int s2n_certs_exist_for_auth_method(struct s2n_connection *conn, s2n_authenticat
             return S2N_SUCCESS;
         }
     }
-    return S2N_FAILURE;
+    S2N_ERROR(S2N_ERR_CERT_TYPE_UNSUPPORTED);
 }
 
 int s2n_cipher_suite_valid_for_auth(struct s2n_connection *conn, struct s2n_cipher_suite *cipher_suite)
 {
     notnull_check(cipher_suite);
 
-    if (cipher_suite->auth_method == S2N_AUTHENTICATION_METHOD_SENTINEL) {
-        return S2N_SUCCESS;
-    }
+    GUARD(s2n_certs_exist_for_auth_method(conn, cipher_suite->auth_method));
 
-    return s2n_certs_exist_for_auth_method(conn, cipher_suite->auth_method);
+    return S2N_SUCCESS;
 }
 
 int s2n_sig_alg_valid_for_auth(struct s2n_connection *conn, s2n_signature_algorithm sig_alg)
@@ -137,20 +131,19 @@ int s2n_sig_alg_valid_for_auth(struct s2n_connection *conn, s2n_signature_algori
     struct s2n_cipher_suite *cipher_suite = conn->secure.cipher_suite;
     notnull_check(cipher_suite);
 
-    if (cipher_suite->auth_method == S2N_AUTHENTICATION_METHOD_SENTINEL) {
-        return s2n_certs_exist_for_sig_alg(conn, sig_alg);
-    } else {
-        return s2n_sig_alg_valid_for_cipher_suite(sig_alg, cipher_suite);
-    }
+    GUARD(s2n_sig_alg_valid_for_cipher_suite(sig_alg, cipher_suite));
+    GUARD(s2n_certs_exist_for_sig_alg(conn, sig_alg));
+
+    return S2N_SUCCESS;
 }
 
-int s2n_select_certs_for_auth(struct s2n_connection *conn, s2n_signature_algorithm sig_alg, struct s2n_cert_chain_and_key **chosen_certs)
+int s2n_select_certs_for_auth(struct s2n_connection *conn, struct s2n_cert_chain_and_key **chosen_certs)
 {
     s2n_certificate_type cert_type;
-    GUARD(s2n_cert_type_for_sig_alg(sig_alg, &cert_type));
+    GUARD(s2n_cert_type_for_sig_alg(conn->secure.conn_sig_scheme.sig_alg, &cert_type));
 
     *chosen_certs = s2n_get_compatible_cert_chain_and_key(conn, cert_type);
-    notnull_check(chosen_certs);
+    S2N_ERROR_IF(*chosen_certs == NULL, S2N_ERR_CERT_TYPE_UNSUPPORTED);
 
-    return 0;
+    return S2N_SUCCESS;
 }
