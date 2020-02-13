@@ -57,29 +57,17 @@ int main(int argc, char **argv)
 {
     BEGIN_TEST();
 
-    char rsa_certs[S2N_MAX_TEST_PEM_SIZE], rsa_private_key[S2N_MAX_TEST_PEM_SIZE];
-    EXPECT_SUCCESS(s2n_read_test_pem(S2N_RSA_2048_PKCS1_CERT_CHAIN, rsa_certs, S2N_MAX_TEST_PEM_SIZE));
-    EXPECT_SUCCESS(s2n_read_test_pem(S2N_RSA_2048_PKCS1_KEY, rsa_private_key, S2N_MAX_TEST_PEM_SIZE));
-
-    char rsa_pss_certs[S2N_MAX_TEST_PEM_SIZE], rsa_pss_private_key[S2N_MAX_TEST_PEM_SIZE];
-    EXPECT_SUCCESS(s2n_read_test_pem(S2N_RSA_PSS_2048_SHA256_LEAF_CERT, rsa_pss_certs, S2N_MAX_TEST_PEM_SIZE));
-    EXPECT_SUCCESS(s2n_read_test_pem(S2N_RSA_PSS_2048_SHA256_LEAF_KEY, rsa_pss_private_key, S2N_MAX_TEST_PEM_SIZE));
-
-    char ecdsa_certs[S2N_MAX_TEST_PEM_SIZE], ecdsa_private_key[S2N_MAX_TEST_PEM_SIZE];
-    EXPECT_SUCCESS(s2n_read_test_pem(S2N_ECDSA_P384_PKCS1_CERT_CHAIN, ecdsa_certs, S2N_MAX_TEST_PEM_SIZE));
-    EXPECT_SUCCESS(s2n_read_test_pem(S2N_ECDSA_P384_PKCS1_KEY, ecdsa_private_key, S2N_MAX_TEST_PEM_SIZE));
-
     struct s2n_cert_chain_and_key *rsa_cert_chain;
-    EXPECT_NOT_NULL(rsa_cert_chain = s2n_cert_chain_and_key_new());
-    EXPECT_SUCCESS(s2n_cert_chain_and_key_load_pem(rsa_cert_chain, rsa_certs, rsa_private_key));
+    EXPECT_SUCCESS(s2n_test_cert_chain_and_key_new(&rsa_cert_chain,
+            S2N_RSA_2048_PKCS1_CERT_CHAIN, S2N_RSA_2048_PKCS1_KEY));
 
     struct s2n_cert_chain_and_key *rsa_pss_cert_chain;
-    EXPECT_NOT_NULL(rsa_pss_cert_chain = s2n_cert_chain_and_key_new());
-    EXPECT_SUCCESS(s2n_cert_chain_and_key_load_pem(rsa_pss_cert_chain, rsa_pss_certs, rsa_pss_private_key));
+    EXPECT_SUCCESS(s2n_test_cert_chain_and_key_new(&rsa_pss_cert_chain,
+            S2N_RSA_PSS_2048_SHA256_LEAF_CERT, S2N_RSA_PSS_2048_SHA256_LEAF_KEY));
 
     struct s2n_cert_chain_and_key *ecdsa_cert_chain;
-    EXPECT_NOT_NULL(ecdsa_cert_chain = s2n_cert_chain_and_key_new());
-    EXPECT_SUCCESS(s2n_cert_chain_and_key_load_pem(ecdsa_cert_chain, ecdsa_certs, ecdsa_private_key));
+    EXPECT_SUCCESS(s2n_test_cert_chain_and_key_new(&ecdsa_cert_chain,
+            S2N_ECDSA_P384_PKCS1_CERT_CHAIN, S2N_ECDSA_P384_PKCS1_KEY));
 
     struct s2n_config *no_certs_config = s2n_config_new();
 
