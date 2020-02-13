@@ -81,7 +81,8 @@ static int try_handshake(struct s2n_connection *server_conn, struct s2n_connecti
     return 0;
 }
 
-int test_cipher_preferences(struct s2n_config *server_config, struct s2n_config *client_config) {
+int test_cipher_preferences(struct s2n_config *server_config, struct s2n_config *client_config,
+        struct s2n_cert_chain_and_key *expected_cert_chain) {
     const struct s2n_cipher_preferences *cipher_preferences;
 
     cipher_preferences = server_config->cipher_preferences;
@@ -103,8 +104,6 @@ int test_cipher_preferences(struct s2n_config *server_config, struct s2n_config 
         struct s2n_connection *server_conn;
         server_conn = s2n_connection_new(S2N_SERVER);
         notnull_check(server_conn);
-        int server_to_client[2];
-        int client_to_server[2];
         struct s2n_cipher_suite *expected_cipher = cipher_preferences->suites[cipher_idx];
         uint8_t expect_failure = 0;
 
@@ -122,75 +121,41 @@ int test_cipher_preferences(struct s2n_config *server_config, struct s2n_config 
         server_conn->cipher_pref_override = &server_cipher_preferences;
 
         /* Create nonblocking pipes */
-        GUARD(pipe(server_to_client));
-        GUARD(pipe(client_to_server));
-        for (int i = 0; i < 2; i++) {
-           ne_check(fcntl(server_to_client[i], F_SETFL, fcntl(server_to_client[i], F_GETFL) | O_NONBLOCK), -1);
-           ne_check(fcntl(client_to_server[i], F_SETFL, fcntl(client_to_server[i], F_GETFL) | O_NONBLOCK), -1);
-        }
+        struct s2n_test_piped_io piped_io;
+        GUARD(s2n_piped_io_init_non_blocking(&piped_io));
 
         client_conn = s2n_connection_new(S2N_CLIENT);
         notnull_check(client_conn);
-        GUARD(s2n_connection_set_read_fd(client_conn, server_to_client[0]));
-        GUARD(s2n_connection_set_write_fd(client_conn, client_to_server[1]));
+        GUARD(s2n_connection_set_piped_io(client_conn, &piped_io));
         GUARD(s2n_connection_set_config(client_conn, client_config));
-        client_conn->server_protocol_version = S2N_TLS12;
-        client_conn->client_protocol_version = S2N_TLS12;
-        client_conn->actual_protocol_version = S2N_TLS12;
 
-        GUARD(s2n_connection_set_read_fd(server_conn, client_to_server[0]));
-        GUARD(s2n_connection_set_write_fd(server_conn, server_to_client[1]));
+        GUARD(s2n_connection_set_piped_io(server_conn, &piped_io));
         GUARD(s2n_connection_set_config(server_conn, server_config));
-        server_conn->server_protocol_version = S2N_TLS12;
-        server_conn->client_protocol_version = S2N_TLS12;
-        server_conn->actual_protocol_version = S2N_TLS12;
 
-        const char* app_data_str = "APPLICATION_DATA";
         if (!expect_failure) {
             GUARD(try_handshake(server_conn, client_conn));
-            const char* actual_cipher = s2n_connection_get_cipher(server_conn);
-            if (strcmp(actual_cipher, expected_cipher->name) != 0){
-                return -1;
-            }
 
-            const char *handshake_type_name = s2n_connection_get_handshake_type_name(client_conn);
-            if (NULL == strstr(handshake_type_name, "NEGOTIATED|FULL_HANDSHAKE")) {
-                return -1;
-            }
+            EXPECT_STRING_EQUAL(s2n_connection_get_cipher(server_conn), expected_cipher->name);
 
-            /* Calling the same funciton on the same connection again should get the same handshake name */
-            if (strcmp(s2n_connection_get_handshake_type_name(client_conn), handshake_type_name) != 0) {
-                return -1;
-            }
+            EXPECT_EQUAL(server_conn->handshake_params.our_chain_and_key, expected_cert_chain);
 
-            handshake_type_name = s2n_connection_get_handshake_type_name(server_conn);
-            if (NULL == strstr(handshake_type_name, "NEGOTIATED|FULL_HANDSHAKE")) {
-                return -1;
-            }
+            EXPECT_TRUE(IS_NEGOTIATED(server_conn->handshake.handshake_type));
+            EXPECT_TRUE(IS_NEGOTIATED(client_conn->handshake.handshake_type));
 
-            if (strcmp(s2n_connection_get_handshake_type_name(server_conn), handshake_type_name) != 0) {
-                return -1;
-            }
+            EXPECT_TRUE(IS_FULL_HANDSHAKE(server_conn->handshake.handshake_type));
+            EXPECT_TRUE(IS_FULL_HANDSHAKE(client_conn->handshake.handshake_type));
 
-            if (strcmp(app_data_str, s2n_connection_get_last_message_name(client_conn)) != 0 ||
-                strcmp(app_data_str, s2n_connection_get_last_message_name(server_conn)) != 0) {
-                return -1;
-            }
+            EXPECT_STRING_EQUAL(s2n_connection_get_last_message_name(server_conn), "APPLICATION_DATA");
+            EXPECT_STRING_EQUAL(s2n_connection_get_last_message_name(client_conn), "APPLICATION_DATA");
         } else {
             eq_check(try_handshake(server_conn, client_conn), -1);
-            if (0 == strcmp(app_data_str, s2n_connection_get_last_message_name(client_conn)) ||
-                0 == strcmp(app_data_str, s2n_connection_get_last_message_name(server_conn))) {
-                return -1;
-            }
+            EXPECT_STRING_NOT_EQUAL(s2n_connection_get_last_message_name(server_conn), "APPLICATION_DATA");
+            EXPECT_STRING_NOT_EQUAL(s2n_connection_get_last_message_name(client_conn), "APPLICATION_DATA");
         }
 
         GUARD(s2n_connection_free(server_conn));
         GUARD(s2n_connection_free(client_conn));
-
-        for (int i = 0; i < 2; i++) {
-           GUARD(close(server_to_client[i]));
-           GUARD(close(client_to_server[i]));
-        }
+        GUARD(s2n_piped_io_close(&piped_io));
     }
 
     return 0;
@@ -227,14 +192,13 @@ int main(int argc, char **argv)
         
         EXPECT_SUCCESS(s2n_config_set_verification_ca_location(client_config, S2N_DEFAULT_TEST_CERT_CHAIN, NULL));
 
-        EXPECT_SUCCESS(test_cipher_preferences(server_config, client_config));
+        EXPECT_SUCCESS(test_cipher_preferences(server_config, client_config, chain_and_key));
 
         EXPECT_SUCCESS(s2n_cert_chain_and_key_free(chain_and_key));
         EXPECT_SUCCESS(s2n_config_free(server_config));
         free(cert_chain_pem);
         free(private_key_pem);
         free(dhparams_pem);
-
     }
 
     /*  test_with_ecdsa_cert() */
@@ -265,7 +229,7 @@ int main(int argc, char **argv)
 
         EXPECT_SUCCESS(s2n_config_set_verification_ca_location(client_config, S2N_ECDSA_P384_PKCS1_CERT_CHAIN, NULL));
         
-        EXPECT_SUCCESS(test_cipher_preferences(server_config, client_config));
+        EXPECT_SUCCESS(test_cipher_preferences(server_config, client_config, chain_and_key));
 
         EXPECT_SUCCESS(s2n_cert_chain_and_key_free(chain_and_key));
         EXPECT_SUCCESS(s2n_config_free(server_config));
