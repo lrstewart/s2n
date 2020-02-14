@@ -29,9 +29,12 @@
 
 #include "tls/s2n_connection.h"
 #include "tls/s2n_handshake.h"
+#include "tls/s2n_kex.h"
 #include "tls/s2n_cipher_preferences.h"
 #include "tls/s2n_cipher_suites.h"
 #include "utils/s2n_safety.h"
+
+#define MAX_CIPHER_SUITES 255
 
 static int try_handshake(struct s2n_connection *server_conn, struct s2n_connection *client_conn)
 {
@@ -163,43 +166,35 @@ int test_cipher_preferences(struct s2n_config *server_config, struct s2n_config 
 
 int main(int argc, char **argv)
 {
-
     BEGIN_TEST();
+
+    char dhparams_pem[S2N_MAX_TEST_PEM_SIZE];
+    EXPECT_SUCCESS(s2n_read_test_pem(S2N_DEFAULT_TEST_DHPARAMS, dhparams_pem, S2N_MAX_TEST_PEM_SIZE));
+
+    struct s2n_cert_chain_and_key *rsa_chain_and_key;
+    EXPECT_SUCCESS(s2n_test_cert_chain_and_key_new(&rsa_chain_and_key,
+            S2N_DEFAULT_TEST_CERT_CHAIN, S2N_DEFAULT_TEST_PRIVATE_KEY));
 
     /*  test_with_rsa_cert(); */
     {
         struct s2n_config *server_config, *client_config;
 
-        char *dhparams_pem;
-        EXPECT_NOT_NULL(dhparams_pem = malloc(S2N_MAX_TEST_PEM_SIZE));
-        EXPECT_SUCCESS(s2n_read_test_pem(S2N_DEFAULT_TEST_DHPARAMS, dhparams_pem, S2N_MAX_TEST_PEM_SIZE));
-
-        struct s2n_cert_chain_and_key *chain_and_key;
-        EXPECT_SUCCESS(s2n_test_cert_chain_and_key_new(&chain_and_key,
-                S2N_DEFAULT_TEST_CERT_CHAIN, S2N_DEFAULT_TEST_PRIVATE_KEY));
-
         EXPECT_NOT_NULL(server_config = s2n_config_new());
-        EXPECT_SUCCESS(s2n_config_add_cert_chain_and_key_to_store(server_config, chain_and_key));
+        EXPECT_SUCCESS(s2n_config_add_cert_chain_and_key_to_store(server_config, rsa_chain_and_key));
         EXPECT_SUCCESS(s2n_config_add_dhparams(server_config, dhparams_pem));
     
         client_config = s2n_fetch_unsafe_client_testing_config();
         
         EXPECT_SUCCESS(s2n_config_set_verification_ca_location(client_config, S2N_DEFAULT_TEST_CERT_CHAIN, NULL));
 
-        EXPECT_SUCCESS(test_cipher_preferences(server_config, client_config, chain_and_key));
+        EXPECT_SUCCESS(test_cipher_preferences(server_config, client_config, rsa_chain_and_key));
 
-        EXPECT_SUCCESS(s2n_cert_chain_and_key_free(chain_and_key));
         EXPECT_SUCCESS(s2n_config_free(server_config));
-        free(dhparams_pem);
     }
 
     /*  test_with_ecdsa_cert() */
     {
         struct s2n_config *server_config, *client_config;
-
-        char *dhparams_pem;
-        EXPECT_NOT_NULL(dhparams_pem = malloc(S2N_MAX_TEST_PEM_SIZE));
-        EXPECT_SUCCESS(s2n_read_test_pem(S2N_DEFAULT_TEST_DHPARAMS, dhparams_pem, S2N_MAX_TEST_PEM_SIZE));
 
         struct s2n_cert_chain_and_key *chain_and_key;
         EXPECT_SUCCESS(s2n_test_cert_chain_and_key_new(&chain_and_key,
@@ -219,8 +214,57 @@ int main(int argc, char **argv)
 
         EXPECT_SUCCESS(s2n_cert_chain_and_key_free(chain_and_key));
         EXPECT_SUCCESS(s2n_config_free(server_config));
-        free(dhparams_pem);
     }
+
+    /*  test_with_rsa_pss_cert() */
+    {
+        struct s2n_cert_chain_and_key *chain_and_key;
+        EXPECT_SUCCESS(s2n_test_cert_chain_and_key_new(&chain_and_key,
+                S2N_RSA_PSS_2048_SHA256_LEAF_CERT, S2N_RSA_PSS_2048_SHA256_LEAF_KEY));
+
+        struct s2n_config *server_config, *client_config;
+
+        EXPECT_NOT_NULL(server_config = s2n_config_new());
+        EXPECT_SUCCESS(s2n_config_add_cert_chain_and_key_to_store(server_config, chain_and_key));
+        EXPECT_SUCCESS(s2n_config_set_signature_preferences(server_config, "20200207"));
+
+        EXPECT_NOT_NULL(client_config = s2n_config_new());
+        EXPECT_SUCCESS(s2n_config_set_signature_preferences(client_config, "20200207"));
+        client_config->disable_x509_validation = 1;
+        client_config->client_cert_auth_type = S2N_CERT_AUTH_NONE;
+
+        /* We still need to set up RSA and DH for key exchange */
+        EXPECT_SUCCESS(s2n_config_add_cert_chain_and_key_to_store(server_config, rsa_chain_and_key));
+        EXPECT_SUCCESS(s2n_config_add_dhparams(server_config, dhparams_pem));
+
+        /* RSA-PSS only works with non-ephemeral key exchange. Filter the cipher suites. */
+        struct s2n_cipher_suite *ephemeral_cipher_suites[MAX_CIPHER_SUITES];
+        int ephemeral_cipher_suites_count = 0;
+        for ( int i = 0; i < server_config->cipher_preferences->count; i++) {
+            if (!server_config->cipher_preferences->suites[i]->key_exchange_alg->is_ephemeral) {
+                continue;
+            }
+            ephemeral_cipher_suites[ephemeral_cipher_suites_count] = server_config->cipher_preferences->suites[i];
+            ephemeral_cipher_suites_count++;
+        }
+        EXPECT_NOT_EQUAL(ephemeral_cipher_suites_count, 0);
+
+        struct s2n_cipher_preferences non_ephemeral_cipher_preferences = {
+            .count = ephemeral_cipher_suites_count,
+            .suites = ephemeral_cipher_suites,
+            .minimum_protocol_version = S2N_SSLv3,
+        };
+        client_config->cipher_preferences = &non_ephemeral_cipher_preferences;
+        server_config->cipher_preferences = &non_ephemeral_cipher_preferences;
+
+        EXPECT_SUCCESS(test_cipher_preferences(server_config, client_config, chain_and_key));
+
+        EXPECT_SUCCESS(s2n_cert_chain_and_key_free(chain_and_key));
+        EXPECT_SUCCESS(s2n_config_free(server_config));
+        EXPECT_SUCCESS(s2n_config_free(client_config));
+    }
+
+    EXPECT_SUCCESS(s2n_cert_chain_and_key_free(rsa_chain_and_key));
 
     END_TEST();
     return 0;
