@@ -35,10 +35,15 @@ int main(int argc, char **argv)
 {
     BEGIN_TEST();
 
+    struct s2n_cert_chain_and_key *chain_and_key;
+    EXPECT_SUCCESS(s2n_test_cert_chain_and_key_new(&chain_and_key,
+            S2N_DEFAULT_TEST_CERT_CHAIN, S2N_DEFAULT_TEST_PRIVATE_KEY));
+
     /* s2n_server_extensions_send */
     {
         struct s2n_config *config;
         EXPECT_NOT_NULL(config = s2n_config_new());
+        EXPECT_SUCCESS(s2n_config_add_cert_chain_and_key_to_store(config, chain_and_key));
 
         /* Test Server Extensions Send - No extensions */
         {
@@ -291,6 +296,8 @@ int main(int argc, char **argv)
 
         EXPECT_SUCCESS(s2n_config_free(config));
     }
+
+    EXPECT_SUCCESS(s2n_cert_chain_and_key_free(chain_and_key));
 
     END_TEST();
     return 0;
