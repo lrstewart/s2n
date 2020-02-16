@@ -56,14 +56,18 @@ int main(int argc, char **argv)
 {
     BEGIN_TEST();
 
+#if !RSA_PSS_SUPPORTED
+    END_TEST();
+#endif
+
     struct s2n_signature_preferences s2n_test_sig_prefs = { .count = 1, .signature_schemes = NULL };
     EXPECT_NOT_EQUAL(s2n_test_sig_prefs.count, 0);
 
-
-    /* Test: RSA_PSS cert with RSA_PSS signatures.
-     * This test does not call s2n_negotiate at the moment to circumvent
-     * a bug in how encrypted handshake records are decrypted.
-     * The bug exists regardless of which auth method is used. */
+    /*
+     * Test: RSA_PSS cert with RSA_PSS signatures.
+     * This test self-talks by calling handlers directly, without going through s2n_handshake_io.
+     * This is to work around https://github.com/awslabs/s2n/issues/1545
+     */
     {
         s2n_enable_tls13();
 
