@@ -412,7 +412,6 @@ int main(int argc, char **argv)
         EXPECT_SUCCESS(s2n_connection_set_cipher_preferences(server_conn, "default_tls13"));
 
         /* Client sends ClientHello */
-        EXPECT_EQUAL(s2n_conn_get_current_message_type(client_conn), CLIENT_HELLO);
         EXPECT_SUCCESS(s2n_handshake_write_io(client_conn));
         EXPECT_EQUAL(s2n_conn_get_current_message_type(client_conn), SERVER_HELLO);
 
@@ -421,70 +420,53 @@ int main(int argc, char **argv)
 
         s2n_tls13_connection_keys(server_secrets_0, server_conn);
         EXPECT_EQUAL(server_secrets_0.size, 0);
-        EXPECT_EQUAL(server_conn->handshake.handshake_type, INITIAL);
 
         /* Server reads ClientHello */
-        EXPECT_EQUAL(s2n_conn_get_current_message_type(server_conn), CLIENT_HELLO);
+        EXPECT_EQUAL(server_conn->handshake.handshake_type, INITIAL);
         EXPECT_SUCCESS(s2n_handshake_read_io(server_conn));
-        EXPECT_EQUAL(s2n_conn_get_current_message_type(server_conn), SERVER_HELLO);
-
         EXPECT_EQUAL(server_conn->actual_protocol_version, S2N_TLS13); /* Server is now on TLS13 */
+        EXPECT_EQUAL(s2n_conn_get_current_message_type(server_conn), SERVER_HELLO);
         EXPECT_EQUAL(server_conn->handshake.handshake_type, NEGOTIATED | FULL_HANDSHAKE);
+
+        s2n_tls13_connection_keys(server_secrets, server_conn);
+        EXPECT_EQUAL(server_secrets.size, 48);
 
         EXPECT_SUCCESS(s2n_conn_set_handshake_type(server_conn));
 
         /* Server sends ServerHello */
-        EXPECT_EQUAL(s2n_conn_get_current_message_type(server_conn), SERVER_HELLO);
         EXPECT_SUCCESS(s2n_handshake_write_io(server_conn));
         EXPECT_EQUAL(s2n_conn_get_current_message_type(server_conn), SERVER_CHANGE_CIPHER_SPEC);
 
-        /* Client reads ServerHello */
-        EXPECT_EQUAL(s2n_conn_get_current_message_type(client_conn), SERVER_HELLO);
+        /* Server sends CCS */
+        EXPECT_SUCCESS(s2n_handshake_write_io(server_conn));
+        EXPECT_EQUAL(s2n_conn_get_current_message_type(server_conn), ENCRYPTED_EXTENSIONS);
+        S2N_BLOB_EXPECT_EQUAL(server_seq, seq_0);
+
+        /* Server sends EncryptedExtensions */
+        EXPECT_SUCCESS(s2n_handshake_write_io(server_conn));
+        EXPECT_EQUAL(s2n_conn_get_current_message_type(server_conn), SERVER_CERT);
+        S2N_BLOB_EXPECT_EQUAL(server_seq, seq_1);
+
+        /* Client reads CCS */
         EXPECT_SUCCESS(s2n_handshake_read_io(client_conn));
         EXPECT_EQUAL(s2n_conn_get_current_message_type(client_conn), ENCRYPTED_EXTENSIONS);
 
         s2n_tls13_connection_keys(client_secrets, client_conn);
         EXPECT_EQUAL(client_secrets.size, 48);
 
-        s2n_tls13_connection_keys(server_secrets, server_conn);
-        EXPECT_EQUAL(server_secrets.size, 48);
-
-        /* Verify that secrets match */
+        /* Verify that derive and extract secrets match */
         S2N_BLOB_EXPECT_EQUAL(server_secrets.derive_secret, client_secrets.derive_secret);
         S2N_BLOB_EXPECT_EQUAL(server_secrets.extract_secret, client_secrets.extract_secret);
 
-        /* Server sends CCS */
-        EXPECT_EQUAL(s2n_conn_get_current_message_type(server_conn), SERVER_CHANGE_CIPHER_SPEC);
-        EXPECT_SUCCESS(s2n_handshake_write_io(server_conn));
-        EXPECT_EQUAL(s2n_conn_get_current_message_type(server_conn), ENCRYPTED_EXTENSIONS);
-
-        S2N_BLOB_EXPECT_EQUAL(server_seq, seq_0);
-
-        /* Client reads CCS */
-        EXPECT_EQUAL(s2n_conn_get_current_message_type(client_conn), ENCRYPTED_EXTENSIONS);
+        /* Client reads Encrypted extensions */
         EXPECT_SUCCESS(s2n_handshake_read_io(client_conn));
         EXPECT_EQUAL(s2n_conn_get_current_message_type(client_conn), ENCRYPTED_EXTENSIONS);
 
-        /* Server sends EncryptedExtensions */
-        EXPECT_EQUAL(s2n_conn_get_current_message_type(server_conn), ENCRYPTED_EXTENSIONS);
-        EXPECT_SUCCESS(s2n_handshake_write_io(server_conn));
-        EXPECT_EQUAL(s2n_conn_get_current_message_type(server_conn), SERVER_CERT);
-
-        S2N_BLOB_EXPECT_EQUAL(server_seq, seq_1);
-
         /* TODO add the rest of the handshakes tests
-         * (EncryptedExtensions, ServerCert, CertVerify, ServerFinished, ClientFinished)
-         * when respective TLS 1.3 components are done
-         *
-         * Parsing of EncryptedExtensions is currently failing. When decrypting with AES,
-         * the encryption tag is incorrect. This passes in the integration tests though */
+         * (ServerCert, CertVerify, ServerFinished, ClientFinished)
+         * when respective TLS 1.3 components are done */
 
         /*
-         * // Client reads Encrypted extensions
-         * EXPECT_EQUAL(s2n_conn_get_current_message_type(client_conn), ENCRYPTED_EXTENSIONS);
-         * EXPECT_SUCCESS(s2n_handshake_read_io(client_conn));
-         * EXPECT_EQUAL(s2n_conn_get_current_message_type(client_conn), SERVER_CERT);
-         *
          * // Server sends ServerCert
          * EXPECT_SUCCESS(s2n_handshake_write_io(server_conn));
          * EXPECT_EQUAL(s2n_conn_get_current_message_type(server_conn), SERVER_CERT_VERIFY);
