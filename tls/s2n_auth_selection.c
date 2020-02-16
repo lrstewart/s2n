@@ -35,16 +35,17 @@
  * This is a break from the original s2n pre-TLS1.3 flow, when we could choose certs and
  * ciphers at the same time. Our cipher suites differentiate between "RSA" and "ECDSA",
  * but not between "RSA" and "RSA-PSS". To make that decision, we need to wait until
- * we've chosen a signature algorithm. This allows us to use RSA-PSS with TLS1.2.
+ * we've chosen a signature algorithm. This allows us to use RSA-PSS with existing
+ * TLS1.2 cipher suites.
  */
 
-static int s2n_auth_method_for_cert_type(s2n_certificate_type cert_type, s2n_authentication_method *auth_method) {
+static int s2n_auth_method_for_cert_type(s2n_pkey_type cert_type, s2n_authentication_method *auth_method) {
     switch(cert_type) {
-        case S2N_CERT_TYPE_RSA:
-        case S2N_CERT_TYPE_RSA_PSS:
+        case S2N_PKEY_TYPE_RSA:
+        case S2N_PKEY_TYPE_RSA_PSS:
             *auth_method = S2N_AUTHENTICATION_RSA;
             return S2N_SUCCESS;
-        case S2N_CERT_TYPE_ECDSA:
+        case S2N_PKEY_TYPE_ECDSA:
             *auth_method = S2N_AUTHENTICATION_ECDSA;
             return S2N_SUCCESS;
         default:
@@ -52,17 +53,17 @@ static int s2n_auth_method_for_cert_type(s2n_certificate_type cert_type, s2n_aut
     }
 }
 
-static int s2n_cert_type_for_sig_alg(s2n_signature_algorithm sig_alg, s2n_certificate_type *cert_type) {
+static int s2n_cert_type_for_sig_alg(s2n_signature_algorithm sig_alg, s2n_pkey_type *cert_type) {
     switch(sig_alg) {
         case S2N_SIGNATURE_RSA_PSS_RSAE:
         case S2N_SIGNATURE_RSA:
-            *cert_type = S2N_CERT_TYPE_RSA;
+            *cert_type = S2N_PKEY_TYPE_RSA;
             return S2N_SUCCESS;
         case S2N_SIGNATURE_ECDSA:
-            *cert_type = S2N_CERT_TYPE_ECDSA;
+            *cert_type = S2N_PKEY_TYPE_ECDSA;
             return S2N_SUCCESS;
         case S2N_SIGNATURE_RSA_PSS_PSS:
-            *cert_type = S2N_CERT_TYPE_RSA_PSS;
+            *cert_type = S2N_PKEY_TYPE_RSA_PSS;
             return S2N_SUCCESS;
         default:
             S2N_ERROR(S2N_ERR_CERT_TYPE_UNSUPPORTED);
@@ -70,13 +71,13 @@ static int s2n_cert_type_for_sig_alg(s2n_signature_algorithm sig_alg, s2n_certif
 }
 
 static int s2n_sig_alg_valid_for_cipher_suite(s2n_signature_algorithm sig_alg, struct s2n_cipher_suite *cipher_suite) {
-    s2n_certificate_type cert_type;
+    s2n_pkey_type cert_type;
     GUARD(s2n_cert_type_for_sig_alg(sig_alg, &cert_type));
 
     /* RSA-PSS only supports Sign/Verify, and not Encrypt/Decrypt, which means that it MUST be used with an
      * ephemeral Key Exchange Algorithm. */
     if (cipher_suite->key_exchange_alg != NULL && !cipher_suite->key_exchange_alg->is_ephemeral) {
-        ne_check(cert_type, S2N_CERT_TYPE_RSA_PSS);
+        ne_check(cert_type, S2N_PKEY_TYPE_RSA_PSS);
     }
 
     if(cipher_suite->auth_method != S2N_AUTHENTICATION_METHOD_SENTINEL) {
@@ -91,7 +92,7 @@ static int s2n_sig_alg_valid_for_cipher_suite(s2n_signature_algorithm sig_alg, s
 static int s2n_certs_exist_for_sig_alg(struct s2n_connection *conn, s2n_signature_algorithm sig_alg) {
     ne_check(sig_alg, S2N_SIGNATURE_ANONYMOUS);
 
-    s2n_certificate_type cert_type;
+    s2n_pkey_type cert_type;
     s2n_cert_type_for_sig_alg(sig_alg, &cert_type);
 
     if (s2n_get_compatible_cert_chain_and_key(conn, cert_type) != NULL) {
@@ -102,7 +103,7 @@ static int s2n_certs_exist_for_sig_alg(struct s2n_connection *conn, s2n_signatur
 
 static int s2n_certs_exist_for_auth_method(struct s2n_connection *conn, s2n_authentication_method auth_method) {
     s2n_authentication_method auth_method_for_cert_type;
-    for(int i = 0; i < S2N_CERT_TYPE_SENTINEL; i++) {
+    for(int i = 0; i < S2N_CERT_TYPE_COUNT; i++) {
         GUARD(s2n_auth_method_for_cert_type(i, &auth_method_for_cert_type));
 
         if (auth_method != S2N_AUTHENTICATION_METHOD_SENTINEL && auth_method != auth_method_for_cert_type) {
@@ -116,6 +117,14 @@ static int s2n_certs_exist_for_auth_method(struct s2n_connection *conn, s2n_auth
     S2N_ERROR(S2N_ERR_CERT_TYPE_UNSUPPORTED);
 }
 
+/* A cipher suite is valid if:
+ * - At least one compatible cert is configured
+ *
+ * TLS1.3 ciphers are valid if ANY certs are configured, as authentication
+ * method is not tied to cipher suites in TLS1.3.
+ *
+ * This method is called by the server when choosing a cipher suite.
+ */
 int s2n_cipher_suite_valid_for_auth(struct s2n_connection *conn, struct s2n_cipher_suite *cipher_suite)
 {
     notnull_check(cipher_suite);
@@ -125,9 +134,16 @@ int s2n_cipher_suite_valid_for_auth(struct s2n_connection *conn, struct s2n_ciph
     return S2N_SUCCESS;
 }
 
+/* A signature algorithm is valid if:
+ * - At least one compatible cert is configured.
+ * - The signature algorithm is allowed by the cipher suite's auth method (if present).
+ *
+ * This method is called by the both server and client when choosing a signature algorithm.
+ */
 int s2n_sig_alg_valid_for_auth(struct s2n_connection *conn, s2n_signature_algorithm sig_alg)
 {
     notnull_check(conn);
+
     struct s2n_cipher_suite *cipher_suite = conn->secure.cipher_suite;
     notnull_check(cipher_suite);
 
@@ -137,9 +153,39 @@ int s2n_sig_alg_valid_for_auth(struct s2n_connection *conn, s2n_signature_algori
     return S2N_SUCCESS;
 }
 
-int s2n_select_certs_for_auth(struct s2n_connection *conn, struct s2n_cert_chain_and_key **chosen_certs)
+/* A cert is valid if:
+ * - The configured cipher suite's auth method (if present) supports the cert.
+ *
+ * We could also verify that at least one of our supported sig algs
+ * supports the cert, but that seems unnecessary. If we don't have a valid
+ * sig alg, we'll fail on CertVerify.
+ *
+ * This method is called by the client when receiving the server's cert.
+ */
+int s2n_cert_type_valid_for_auth(struct s2n_connection *conn, s2n_pkey_type cert_type)
 {
-    s2n_certificate_type cert_type;
+    notnull_check(conn);
+    notnull_check(conn->secure.cipher_suite);
+
+    s2n_authentication_method auth_method;
+    GUARD(s2n_auth_method_for_cert_type(cert_type, &auth_method));
+
+    if (conn->secure.cipher_suite->auth_method != S2N_AUTHENTICATION_METHOD_SENTINEL) {
+        S2N_ERROR_IF(auth_method != conn->secure.cipher_suite->auth_method, S2N_ERR_CERT_TYPE_UNSUPPORTED);
+    }
+
+    return S2N_SUCCESS;
+}
+
+/* Choose the cert associated with our configured signature algorithm.
+ *
+ * This method is called by the server after configuring its cipher suite and sig algs.
+ */
+int s2n_select_certs_for_server_auth(struct s2n_connection *conn, struct s2n_cert_chain_and_key **chosen_certs)
+{
+    notnull_check(conn);
+
+    s2n_pkey_type cert_type;
     GUARD(s2n_cert_type_for_sig_alg(conn->secure.conn_sig_scheme.sig_alg, &cert_type));
 
     *chosen_certs = s2n_get_compatible_cert_chain_and_key(conn, cert_type);

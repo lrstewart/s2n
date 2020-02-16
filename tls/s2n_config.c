@@ -160,7 +160,7 @@ static int s2n_config_update_domain_name_to_cert_map(struct s2n_config *config,
         return 0;
     }
     struct s2n_blob s2n_map_value = { 0 };
-    s2n_certificate_type cert_type = s2n_cert_chain_and_key_get_cert_type(cert_key_pair);
+    s2n_pkey_type cert_type = s2n_cert_chain_and_key_get_pkey_type(cert_key_pair);
     if (s2n_map_lookup(domain_name_to_cert_map, name, &s2n_map_value) == 0) {
         struct certs_by_type value = {{ 0 }};
         value.certs[cert_type] = cert_key_pair;
@@ -360,7 +360,7 @@ int s2n_config_free_cert_chain_and_key(struct s2n_config *config)
     /* Free the cert_chain_and_key since the application has no reference
      * to it. This is necessary until s2n_config_add_cert_chain_and_key is deprecated. */
     if (config->cert_allocated) {
-        for (int i = 0; i < S2N_CERT_TYPE_SENTINEL; i++) {
+        for (int i = 0; i < S2N_CERT_TYPE_COUNT; i++) {
             s2n_cert_chain_and_key_free(config->default_certs_by_type.certs[i]);
         }
     }
@@ -513,7 +513,7 @@ int s2n_config_add_cert_chain_and_key_to_store(struct s2n_config *config, struct
     if (!config->default_certs_are_explicit) {
         /* Attempt to auto set default based on ordering. ie: first RSA cert is the default, first ECDSA cert is the
          * default, etc. */
-        s2n_certificate_type cert_type = s2n_cert_chain_and_key_get_cert_type(cert_key_pair);
+        s2n_pkey_type cert_type = s2n_cert_chain_and_key_get_pkey_type(cert_key_pair);
         if (config->default_certs_by_type.certs[cert_type] == NULL) {
             config->default_certs_by_type.certs[cert_type] = cert_key_pair;
         }
@@ -525,7 +525,7 @@ int s2n_config_add_cert_chain_and_key_to_store(struct s2n_config *config, struct
 int s2n_config_clear_default_certificates(struct s2n_config *config)
 {
     notnull_check(config);
-    for (int i = 0; i < S2N_CERT_TYPE_SENTINEL; i++) {
+    for (int i = 0; i < S2N_CERT_TYPE_COUNT; i++) {
         config->default_certs_by_type.certs[i] = NULL;
     }
     return 0;
@@ -537,21 +537,21 @@ int s2n_config_set_cert_chain_and_key_defaults(struct s2n_config *config,
 {
     notnull_check(config);
     notnull_check(cert_key_pairs);
-    S2N_ERROR_IF(num_cert_key_pairs < 1 || num_cert_key_pairs > S2N_CERT_TYPE_SENTINEL,
+    S2N_ERROR_IF(num_cert_key_pairs < 1 || num_cert_key_pairs > S2N_CERT_TYPE_COUNT,
             S2N_ERR_NUM_DEFAULT_CERTIFICATES);
 
     /* Validate certs being set before clearing auto-chosen defaults or previously set defaults */
     struct certs_by_type new_defaults = {{ 0 }};
     for (int i = 0; i < num_cert_key_pairs; i++) {
         notnull_check(cert_key_pairs[i]);
-        s2n_certificate_type cert_type = s2n_cert_chain_and_key_get_cert_type(cert_key_pairs[i]);
+        s2n_pkey_type cert_type = s2n_cert_chain_and_key_get_pkey_type(cert_key_pairs[i]);
         S2N_ERROR_IF(new_defaults.certs[cert_type] != NULL, S2N_ERR_MULTIPLE_DEFAULT_CERTIFICATES_PER_AUTH_TYPE);
         new_defaults.certs[cert_type] = cert_key_pairs[i];
     }
 
     GUARD(s2n_config_clear_default_certificates(config));
     for (int i = 0; i < num_cert_key_pairs; i++) {
-        s2n_certificate_type cert_type = s2n_cert_chain_and_key_get_cert_type(cert_key_pairs[i]);
+        s2n_pkey_type cert_type = s2n_cert_chain_and_key_get_pkey_type(cert_key_pairs[i]);
         config->default_certs_by_type.certs[cert_type] = cert_key_pairs[i];
     }
 
@@ -817,7 +817,7 @@ struct s2n_cert_chain_and_key *s2n_config_get_single_default_cert(struct s2n_con
     notnull_check_ptr(config);
     struct s2n_cert_chain_and_key *cert = NULL;
 
-    for (int i = S2N_CERT_TYPE_SENTINEL - 1; i >= 0; i--) {
+    for (int i = S2N_CERT_TYPE_COUNT - 1; i >= 0; i--) {
         if (config->default_certs_by_type.certs[i] != NULL) {
             cert = config->default_certs_by_type.certs[i];
         }
@@ -829,7 +829,7 @@ int s2n_config_get_num_default_certs(struct s2n_config *config)
 {
     notnull_check(config);
     int num_certs = 0;
-    for (int i = 0; i < S2N_CERT_TYPE_SENTINEL; i++) {
+    for (int i = 0; i < S2N_CERT_TYPE_COUNT; i++) {
         if (config->default_certs_by_type.certs[i] != NULL) {
             num_certs++;
         }

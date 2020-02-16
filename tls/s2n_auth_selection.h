@@ -22,4 +22,6 @@
 
 int s2n_cipher_suite_valid_for_auth(struct s2n_connection *conn, struct s2n_cipher_suite *cipher_suite);
 int s2n_sig_alg_valid_for_auth(struct s2n_connection *conn, s2n_signature_algorithm sig_alg);
-int s2n_select_certs_for_auth(struct s2n_connection *conn, struct s2n_cert_chain_and_key **chosen_certs);
+int s2n_cert_type_valid_for_auth(struct s2n_connection *conn, s2n_pkey_type cert_type);
+int s2n_select_certs_for_server_auth(struct s2n_connection *conn, struct s2n_cert_chain_and_key **chosen_certs);
+

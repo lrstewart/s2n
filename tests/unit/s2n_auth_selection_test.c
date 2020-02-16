@@ -48,7 +48,7 @@ static int s2n_test_auth_combo(struct s2n_connection *conn,
     GUARD(s2n_sig_alg_valid_for_auth(conn, sig_alg));
     conn->secure.conn_sig_scheme.sig_alg = sig_alg;
 
-    GUARD(s2n_select_certs_for_auth(conn, &actual_cert_chain));
+    GUARD(s2n_select_certs_for_server_auth(conn, &actual_cert_chain));
     eq_check(actual_cert_chain, expected_cert_chain);
     return S2N_SUCCESS;
 }
@@ -214,7 +214,35 @@ int main(int argc, char **argv)
         EXPECT_SUCCESS(s2n_connection_free(conn));
     }
 
-    /* s2n_select_certs_for_auth */
+    /* s2n_cert_type_valid_for_auth */
+    {
+        struct s2n_connection *conn = s2n_connection_new(S2N_CLIENT);
+
+        /* RSA auth type */
+        conn->secure.cipher_suite = RSA_AUTH_CIPHER_SUITE;
+        EXPECT_SUCCESS(s2n_cert_type_valid_for_auth(conn, S2N_PKEY_TYPE_RSA));
+        EXPECT_SUCCESS(s2n_cert_type_valid_for_auth(conn, S2N_PKEY_TYPE_RSA_PSS));
+        EXPECT_FAILURE(s2n_cert_type_valid_for_auth(conn, S2N_PKEY_TYPE_ECDSA));
+        EXPECT_FAILURE(s2n_cert_type_valid_for_auth(conn, S2N_PKEY_TYPE_UNKNOWN));
+
+        /* ECDSA auth type */
+        conn->secure.cipher_suite = ECDSA_AUTH_CIPHER_SUITE;
+        EXPECT_FAILURE(s2n_cert_type_valid_for_auth(conn, S2N_PKEY_TYPE_RSA));
+        EXPECT_FAILURE(s2n_cert_type_valid_for_auth(conn, S2N_PKEY_TYPE_RSA_PSS));
+        EXPECT_SUCCESS(s2n_cert_type_valid_for_auth(conn, S2N_PKEY_TYPE_ECDSA));
+        EXPECT_FAILURE(s2n_cert_type_valid_for_auth(conn, S2N_PKEY_TYPE_UNKNOWN));
+
+        /* No auth type */
+        conn->secure.cipher_suite = NO_AUTH_CIPHER_SUITE;
+        EXPECT_SUCCESS(s2n_cert_type_valid_for_auth(conn, S2N_PKEY_TYPE_RSA));
+        EXPECT_SUCCESS(s2n_cert_type_valid_for_auth(conn, S2N_PKEY_TYPE_RSA_PSS));
+        EXPECT_SUCCESS(s2n_cert_type_valid_for_auth(conn, S2N_PKEY_TYPE_ECDSA));
+        EXPECT_FAILURE(s2n_cert_type_valid_for_auth(conn, S2N_PKEY_TYPE_UNKNOWN));
+
+        EXPECT_SUCCESS(s2n_connection_free(conn));
+    }
+
+    /* s2n_select_certs_for_server_auth */
     {
         struct s2n_connection *conn = s2n_connection_new(S2N_SERVER);
         struct s2n_cert_chain_and_key *chosen_certs;
@@ -223,38 +251,38 @@ int main(int argc, char **argv)
         s2n_connection_set_config(conn, all_certs_config);
 
         conn->secure.conn_sig_scheme.sig_alg = S2N_SIGNATURE_RSA;
-        EXPECT_SUCCESS(s2n_select_certs_for_auth(conn, &chosen_certs));
+        EXPECT_SUCCESS(s2n_select_certs_for_server_auth(conn, &chosen_certs));
         EXPECT_EQUAL(chosen_certs, rsa_cert_chain);
 
         conn->secure.conn_sig_scheme.sig_alg = S2N_SIGNATURE_RSA_PSS_PSS;
-        EXPECT_SUCCESS(s2n_select_certs_for_auth(conn, &chosen_certs));
+        EXPECT_SUCCESS(s2n_select_certs_for_server_auth(conn, &chosen_certs));
         EXPECT_EQUAL(chosen_certs, rsa_pss_cert_chain);
 
         conn->secure.conn_sig_scheme.sig_alg = S2N_SIGNATURE_RSA_PSS_RSAE;
-        EXPECT_SUCCESS(s2n_select_certs_for_auth(conn, &chosen_certs));
+        EXPECT_SUCCESS(s2n_select_certs_for_server_auth(conn, &chosen_certs));
         EXPECT_EQUAL(chosen_certs, rsa_cert_chain);
 
         conn->secure.conn_sig_scheme.sig_alg = S2N_SIGNATURE_ECDSA;
-        EXPECT_SUCCESS(s2n_select_certs_for_auth(conn, &chosen_certs));
+        EXPECT_SUCCESS(s2n_select_certs_for_server_auth(conn, &chosen_certs));
         EXPECT_EQUAL(chosen_certs, ecdsa_cert_chain);
 
         /* Requested cert chain does NOT exist */
         s2n_connection_set_config(conn, no_certs_config);
 
         conn->secure.conn_sig_scheme.sig_alg = S2N_SIGNATURE_RSA;
-        EXPECT_FAILURE(s2n_select_certs_for_auth(conn, &chosen_certs));
+        EXPECT_FAILURE(s2n_select_certs_for_server_auth(conn, &chosen_certs));
         EXPECT_NULL(chosen_certs);
 
         conn->secure.conn_sig_scheme.sig_alg = S2N_SIGNATURE_RSA_PSS_PSS;
-        EXPECT_FAILURE(s2n_select_certs_for_auth(conn, &chosen_certs));
+        EXPECT_FAILURE(s2n_select_certs_for_server_auth(conn, &chosen_certs));
         EXPECT_NULL(chosen_certs);
 
         conn->secure.conn_sig_scheme.sig_alg = S2N_SIGNATURE_RSA_PSS_RSAE;
-        EXPECT_FAILURE(s2n_select_certs_for_auth(conn, &chosen_certs));
+        EXPECT_FAILURE(s2n_select_certs_for_server_auth(conn, &chosen_certs));
         EXPECT_NULL(chosen_certs);
 
         conn->secure.conn_sig_scheme.sig_alg = S2N_SIGNATURE_ECDSA;
-        EXPECT_FAILURE(s2n_select_certs_for_auth(conn, &chosen_certs));
+        EXPECT_FAILURE(s2n_select_certs_for_server_auth(conn, &chosen_certs));
         EXPECT_NULL(chosen_certs);
 
         EXPECT_SUCCESS(s2n_connection_free(conn));

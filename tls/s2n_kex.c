@@ -63,7 +63,7 @@ static int s2n_write_no_extension(const struct s2n_connection *conn, struct s2n_
 
 static int s2n_check_rsa_key(const struct s2n_cipher_suite *cipher_suite, struct s2n_connection *conn)
 {
-    return s2n_get_compatible_cert_chain_and_key(conn, S2N_CERT_TYPE_RSA) != NULL;
+    return s2n_get_compatible_cert_chain_and_key(conn, S2N_PKEY_TYPE_RSA) != NULL;
 }
 
 static int s2n_check_dhe(const struct s2n_cipher_suite *cipher_suite, struct s2n_connection *conn)

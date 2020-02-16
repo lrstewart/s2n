@@ -29,6 +29,7 @@
 static int s2n_signature_scheme_valid_to_offer(struct s2n_connection *conn, const struct s2n_signature_scheme *scheme)
 {
     gte_check(conn->actual_protocol_version, scheme->minimum_protocol_version);
+
     return 0;
 }
 
