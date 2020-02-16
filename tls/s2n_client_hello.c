@@ -299,8 +299,7 @@ int s2n_process_client_hello(struct s2n_connection *conn)
     /* Find potential certificate matches before we choose the cipher. */
     GUARD(s2n_conn_find_name_matching_certs(conn));
 
-    /* Now choose the ciphers and the cert chain. */
-    /* In TLS 1.3, only cipher suite is chosen, and cert chain selection deferred till signature scheme selection */
+    /* Now choose the ciphers we have certs for. */
     GUARD(s2n_set_cipher_as_tls_server(conn, client_hello->cipher_suites.data, client_hello->cipher_suites.size / 2));
 
     /* And set the signature and hash algorithm used for key exchange signatures */

@@ -29,7 +29,6 @@
 
 #include "tls/s2n_connection.h"
 #include "tls/s2n_handshake.h"
-#include "tls/s2n_kex.h"
 #include "tls/s2n_cipher_preferences.h"
 #include "tls/s2n_cipher_suites.h"
 #include "tls/s2n_tls13.h"

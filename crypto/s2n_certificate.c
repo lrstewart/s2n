@@ -29,7 +29,7 @@
 #include "utils/s2n_safety.h"
 #include "utils/s2n_mem.h"
 
-const s2n_certificate_type pkey_type_to_cert_type[] = {
+static const s2n_certificate_type pkey_type_to_cert_type[] = {
     [S2N_PKEY_TYPE_RSA] = S2N_CERT_TYPE_RSA,
     [S2N_PKEY_TYPE_RSA_PSS] = S2N_CERT_TYPE_RSA_PSS,
     [S2N_PKEY_TYPE_ECDSA] = S2N_CERT_TYPE_ECDSA,
