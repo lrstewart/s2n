@@ -189,6 +189,7 @@ int main(int argc, char **argv)
         EXPECT_SUCCESS(test_cipher_preferences(server_config, client_config,
                 chain_and_key, S2N_SIGNATURE_RSA));
 
+        EXPECT_SUCCESS(s2n_cert_chain_and_key_free(chain_and_key));
         EXPECT_SUCCESS(s2n_config_free(server_config));
     }
 
@@ -257,6 +258,7 @@ int main(int argc, char **argv)
         EXPECT_SUCCESS(test_cipher_preferences(server_config, client_config,
                 chain_and_key, S2N_SIGNATURE_RSA_PSS_RSAE));
 
+        EXPECT_SUCCESS(s2n_cert_chain_and_key_free(chain_and_key));
         EXPECT_SUCCESS(s2n_config_free(server_config));
     }
 
@@ -282,12 +284,8 @@ int main(int argc, char **argv)
         client_config->check_ocsp = 0;
         client_config->disable_x509_validation = 1;
 
-        /* This test currently fails due to https://github.com/awslabs/s2n/issues/1545
-         * When that issue is solved, this test can be enabled.
-         *
-         * EXPECT_SUCCESS(test_cipher_preferences(server_config, client_config,
-         *         chain_and_key, S2N_SIGNATURE_RSA_PSS_PSS));
-        */
+        EXPECT_SUCCESS(test_cipher_preferences(server_config, client_config,
+                chain_and_key, S2N_SIGNATURE_RSA_PSS_PSS));
 
         EXPECT_SUCCESS(s2n_cert_chain_and_key_free(chain_and_key));
         EXPECT_SUCCESS(s2n_config_free(server_config));
