@@ -28,7 +28,7 @@
 #include "utils/s2n_safety.h"
 #include "utils/s2n_array.h"
 
-static int s2n_certificate_type_to_pkey_type(s2n_cert_type cert_type_in, s2n_pkey_type *pkey_type_out) {
+static int s2n_cert_type_to_pkey_type(s2n_cert_type cert_type_in, s2n_pkey_type *pkey_type_out) {
     switch(cert_type_in) {
         case S2N_CERT_TYPE_RSA_SIGN:
             *pkey_type_out = S2N_PKEY_TYPE_RSA;
@@ -41,7 +41,7 @@ static int s2n_certificate_type_to_pkey_type(s2n_cert_type cert_type_in, s2n_pke
     }
 }
 
-static int s2n_set_cert_setup_auth(struct s2n_connection *conn)
+static int s2n_set_cert_chain_as_client(struct s2n_connection *conn)
 {
     if (s2n_config_get_num_default_certs(conn->config) > 0) {
         GUARD(s2n_choose_sig_scheme_from_peer_preference_list(conn, &conn->handshake_params.server_sig_hash_algs,
@@ -61,7 +61,7 @@ int s2n_client_cert_req_recv(struct s2n_connection *conn)
 
     s2n_cert_type cert_type = 0;
     GUARD(s2n_recv_client_cert_preferences(in, &cert_type));
-    GUARD(s2n_certificate_type_to_pkey_type(cert_type, &conn->secure.client_cert_pkey_type));
+    GUARD(s2n_cert_type_to_pkey_type(cert_type, &conn->secure.client_cert_pkey_type));
 
     if (conn->actual_protocol_version == S2N_TLS12) {
         GUARD(s2n_recv_supported_sig_scheme_list(in, &conn->handshake_params.server_sig_hash_algs));
@@ -79,7 +79,7 @@ int s2n_client_cert_req_recv(struct s2n_connection *conn)
      * The cert authorities extension and the signature algorithms advertised.
      * For now, this will just set the only certificate configured.
      */
-    GUARD(s2n_set_cert_setup_auth(conn));
+    GUARD(s2n_set_cert_chain_as_client(conn));
 
     return 0;
 }

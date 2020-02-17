@@ -27,14 +27,9 @@
 #include "tls/s2n_connection.h"
 #include "tls/s2n_signature_scheme.h"
 
-#define LENGTH 3
-#define STUFFER_SIZE (LENGTH * TLS_SIGNATURE_SCHEME_LEN + 10)
-
 #define RSA_AUTH_CIPHER_SUITE &s2n_dhe_rsa_with_3des_ede_cbc_sha
 #define ECDSA_AUTH_CIPHER_SUITE &s2n_ecdhe_ecdsa_with_aes_128_cbc_sha
 #define NO_AUTH_CIPHER_SUITE &s2n_tls13_aes_128_gcm_sha256
-
-#define CERT_COUNT(certs) ( sizeof(certs) / sizeof(struct s2n_cert_chain_and_key*) )
 
 static int s2n_test_auth_combo(struct s2n_connection *conn,
         struct s2n_cipher_suite *cipher_suite, s2n_signature_algorithm sig_alg,
@@ -382,7 +377,6 @@ int main(int argc, char **argv)
         EXPECT_SUCCESS(s2n_test_auth_combo(conn, NO_AUTH_CIPHER_SUITE, S2N_SIGNATURE_RSA_PSS_PSS, rsa_pss_cert_chain));
         EXPECT_SUCCESS(s2n_test_auth_combo(conn, NO_AUTH_CIPHER_SUITE, S2N_SIGNATURE_RSA_PSS_RSAE, rsa_cert_chain));
         EXPECT_SUCCESS(s2n_test_auth_combo(conn, NO_AUTH_CIPHER_SUITE, S2N_SIGNATURE_ECDSA, ecdsa_cert_chain));
-
 
         EXPECT_SUCCESS(s2n_connection_free(conn));
     }

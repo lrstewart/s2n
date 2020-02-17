@@ -36,7 +36,7 @@ int s2n_test_cert_chain_and_key_new(struct s2n_cert_chain_and_key **chain_and_ke
     notnull_check(*chain_and_key = s2n_cert_chain_and_key_new());
     GUARD(s2n_cert_chain_and_key_load_pem(*chain_and_key, cert_chain_pem, private_key_pem));
 
-    return 0;
+    return S2N_SUCCESS;
 }
 
 int s2n_read_test_pem(const char *pem_path, char *pem_out, long int max_size)
