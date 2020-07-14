@@ -4,7 +4,6 @@ name: s2nPrivateFuzz
 on:
   pull_request:
     branches:
-      - master
       - main
 jobs:
   fuzz:
