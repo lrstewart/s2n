@@ -1,0 +1,16 @@
+name: Deprecate Master
+
+on:
+  pull_request:
+    branches:
+      - master
+jobs:
+  block:
+    if: contains(github.repository, 'awslabs/s2n')
+    name: The 'master' branch is deprecated
+    runs-on: ubuntu-latest
+    steps:
+    - name: block
+      run: |
+        echo "The 'master' branch is deprecated. Use 'main' instead."
+        exit 1
