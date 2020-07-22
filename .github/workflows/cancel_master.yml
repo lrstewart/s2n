@@ -1,0 +1,14 @@
+name: Cancel Master
+
+on:
+  pull_request:
+    branches:
+      - master
+jobs:
+  block:
+    runs-on: ubuntu-latest
+    steps:
+    - name: The 'master' branch is deprecated
+      run: |
+        echo "'master' is deprecated. Use the default branch."
+        exit 1
