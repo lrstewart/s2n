@@ -6,7 +6,7 @@ on:
       - master
 jobs:
   block:
-    if: contains(github.repository, 'awslabs/s2n')
+    if: contains(github.repository, 'lrstewart/s2n')
     name: The 'master' branch is deprecated
     runs-on: ubuntu-latest
     steps:
