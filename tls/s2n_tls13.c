@@ -34,14 +34,23 @@ int s2n_enable_tls13()
 {
     s2n_highest_protocol_version = S2N_TLS13;
     s2n_use_default_tls13_config_flag = true;
-    return 0;
+    return S2N_SUCCESS;
 }
 
 int s2n_disable_tls13()
 {
+    ENSURE_POSIX(s2n_in_unit_test(), S2N_ERR_NOT_IN_UNIT_TEST);
     s2n_highest_protocol_version = S2N_TLS12;
     s2n_use_default_tls13_config_flag = false;
-    return 0;
+    return S2N_SUCCESS;
+}
+
+int s2n_reset_tls13()
+{
+    ENSURE_POSIX(s2n_in_unit_test(), S2N_ERR_NOT_IN_UNIT_TEST);
+    s2n_highest_protocol_version = S2N_TLS13;
+    s2n_use_default_tls13_config_flag = false;
+    return S2N_SUCCESS;
 }
 
 /* Returns whether a uint16 iana value is a valid TLS 1.3 cipher suite */
