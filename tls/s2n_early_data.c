@@ -82,3 +82,13 @@ int s2n_psk_set_context(struct s2n_psk *psk, const uint8_t *context, uint16_t si
     memcpy_check(context_blob->data, context, size);
     return S2N_SUCCESS;
 }
+
+int s2n_end_of_early_data_send(struct s2n_connection *conn)
+{
+    return S2N_RESULT_TO_POSIX(s2n_connection_set_early_data_state(conn, S2N_END_OF_EARLY_DATA));
+}
+
+int s2n_end_of_early_data_recv(struct s2n_connection *conn)
+{
+    return S2N_RESULT_TO_POSIX(s2n_connection_set_early_data_state(conn, S2N_END_OF_EARLY_DATA));
+}
