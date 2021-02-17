@@ -16,6 +16,7 @@
 #include "tls/s2n_early_data.h"
 
 #include "tls/s2n_connection.h"
+#include "tls/s2n_cipher_suites.h"
 #include "tls/s2n_psk.h"
 #include "utils/s2n_safety.h"
 #include "utils/s2n_mem.h"
@@ -52,10 +53,16 @@ int s2n_psk_configure_early_data(struct s2n_psk *psk, uint32_t max_early_data_si
         uint8_t cipher_suite_first_byte, uint8_t cipher_suite_second_byte)
 {
     notnull_check(psk);
+
+    const uint8_t cipher_suite_iana[] = { cipher_suite_first_byte, cipher_suite_second_byte };
+    struct s2n_cipher_suite *cipher_suite = NULL;
+    GUARD_AS_POSIX(s2n_iana_to_cipher_suite(cipher_suite_iana, &cipher_suite));
+    ENSURE_POSIX(cipher_suite != NULL, S2N_ERR_INVALID_ARGUMENT);
+    ENSURE_POSIX(cipher_suite->prf_alg == psk->hmac_alg, S2N_ERR_INVALID_ARGUMENT);
+
     psk->early_data_config.max_early_data_size = max_early_data_size;
     psk->early_data_config.protocol_version = S2N_TLS13;
-    psk->early_data_config.cipher_suite_iana[0] = cipher_suite_first_byte;
-    psk->early_data_config.cipher_suite_iana[1] = cipher_suite_second_byte;
+    psk->early_data_config.cipher_suite = cipher_suite;
     return S2N_SUCCESS;
 }
 
@@ -81,4 +88,26 @@ int s2n_psk_set_context(struct s2n_psk *psk, const uint8_t *context, uint16_t si
     GUARD(s2n_realloc(context_blob, size));
     memcpy_check(context_blob->data, context, size);
     return S2N_SUCCESS;
+}
+
+S2N_RESULT s2n_early_data_config_clone(struct s2n_psk *new_psk, struct s2n_early_data_config *old_config)
+{
+    ENSURE_REF(old_config);
+    ENSURE_REF(new_psk);
+
+    if (old_config->cipher_suite == NULL) {
+        new_psk->early_data_config.max_early_data_size = 0;
+        new_psk->early_data_config.cipher_suite = NULL;
+    } else {
+        GUARD_AS_RESULT(s2n_psk_configure_early_data(new_psk, old_config->max_early_data_size,
+                old_config->cipher_suite->iana_value[0], old_config->cipher_suite->iana_value[1]));
+    }
+
+    GUARD_AS_RESULT(s2n_psk_set_application_protocol(new_psk, old_config->application_protocol.data,
+            old_config->application_protocol.size));
+
+    GUARD_AS_RESULT(s2n_psk_set_context(new_psk, old_config->context.data,
+            old_config->context.size));
+
+    return S2N_RESULT_OK;
 }
