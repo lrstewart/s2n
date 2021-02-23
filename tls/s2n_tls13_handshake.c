@@ -145,10 +145,6 @@ int s2n_tls13_compute_pq_hybrid_shared_secret(struct s2n_connection *conn, struc
     GUARD(s2n_stuffer_write(&stuffer_combiner, &ecdhe_shared_secret));
     GUARD(s2n_stuffer_write(&stuffer_combiner, pq_shared_secret));
 
-    /* No longer need PQ shared secret or ECC keys */
-    GUARD(s2n_kem_group_free(server_kem_group_params));
-    GUARD(s2n_kem_group_free(client_kem_group_params));
-
     return S2N_SUCCESS;
 }
 
@@ -165,6 +161,8 @@ int s2n_tls13_compute_shared_secret(struct s2n_connection *conn, struct s2n_blob
     } else {
         GUARD(s2n_tls13_compute_ecc_shared_secret(conn, shared_secret));
     }
+
+    GUARD_AS_POSIX(s2n_connection_wipe_all_keyshares(conn));
 
     return S2N_SUCCESS;
 }
@@ -238,12 +236,6 @@ int s2n_tls13_handle_handshake_secrets(struct s2n_connection *conn)
     struct s2n_blob client_finished_key = { .data = conn->handshake.client_finished, .size = secrets.size };
     GUARD(s2n_tls13_derive_finished_key(&secrets, &server_hs_secret, &server_finished_key));
     GUARD(s2n_tls13_derive_finished_key(&secrets, &client_hs_secret, &client_finished_key));
-
-    /* since shared secret has been computed, clean up keys */
-    GUARD(s2n_ecc_evp_params_free(&conn->secure.server_ecc_evp_params));
-    for (int i = 0; i < ecc_preferences->count; i++) {
-        GUARD(s2n_ecc_evp_params_free(&conn->secure.client_ecc_evp_params[i]));
-    }
 
     /* According to https://tools.ietf.org/html/rfc8446#section-5.3:
      * Each sequence number is set to zero at the beginning of a connection and
