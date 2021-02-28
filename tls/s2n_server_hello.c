@@ -187,7 +187,7 @@ int s2n_server_hello_recv(struct s2n_connection *conn)
         return 0;
     }
 
-    if (IS_RESUMPTION_HANDSHAKE(conn->handshake.handshake_type)) {
+    if (IS_RESUMPTION_HANDSHAKE(conn)) {
         GUARD(s2n_prf_key_expansion(conn));
     }
 

@@ -210,12 +210,24 @@ void s2n_print_connection(struct s2n_connection *conn, const char *marker)
     printf("\n");
 }
 
-int s2n_set_connection_hello_retry_flags(struct s2n_connection *conn)
+int s2n_set_connection_negotiated_full_flags(struct s2n_connection *conn)
 {
     notnull_check(conn);
 
+    conn->handshake.message_number = SERVER_HELLO;
+    GUARD_AS_POSIX(s2n_handshake_type_set_flag(conn, NEGOTIATED));
+    GUARD_AS_POSIX(s2n_handshake_type_set_flag(conn, FULL_HANDSHAKE));
+
+    return S2N_SUCCESS;
+}
+
+int s2n_set_connection_hello_retry_flags(struct s2n_connection *conn)
+{
+    notnull_check(conn);
+    GUARD(s2n_set_connection_negotiated_full_flags(conn));
+
     conn->handshake.message_number = 1;
-    conn->handshake.handshake_type = NEGOTIATED | HELLO_RETRY_REQUEST | FULL_HANDSHAKE;
+    GUARD_AS_POSIX(s2n_handshake_type_set_tls13_flag(conn, HELLO_RETRY_REQUEST));
 
     return S2N_SUCCESS;
 }

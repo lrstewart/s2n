@@ -55,6 +55,7 @@ int s2n_connections_set_io_pair(struct s2n_connection *client, struct s2n_connec
 int s2n_fd_set_blocking(int fd);
 int s2n_fd_set_non_blocking(int fd);
 
+int s2n_set_connection_negotiated_full_flags(struct s2n_connection *conn);
 int s2n_set_connection_hello_retry_flags(struct s2n_connection *conn);
 int s2n_connection_allow_all_response_extensions(struct s2n_connection *conn);
 int s2n_connection_set_all_protocol_versions(struct s2n_connection *conn, uint8_t version);
@@ -181,6 +182,12 @@ int s2n_public_ecc_keys_are_equal(struct s2n_ecc_evp_params *params_1, struct s2
 extern const s2n_parsed_extension EMPTY_PARSED_EXTENSIONS[S2N_PARSED_EXTENSIONS_COUNT];
 #define EXPECT_PARSED_EXTENSION_LIST_EMPTY(list) EXPECT_BYTEARRAY_EQUAL(list.parsed_extensions, EMPTY_PARSED_EXTENSIONS, sizeof(EMPTY_PARSED_EXTENSIONS))
 #define EXPECT_PARSED_EXTENSION_LIST_NOT_EMPTY(list) EXPECT_BYTEARRAY_NOT_EQUAL(list.parsed_extensions, EMPTY_PARSED_EXTENSIONS, sizeof(EMPTY_PARSED_EXTENSIONS))
+
+#define EXPECT_HANDSHAKE_TYPE(conn, type) do {        \
+    uint16_t actual = 0;                              \
+    EXPECT_OK(s2n_get_handshake_type(conn, &actual)); \
+    EXPECT_EQUAL(actual, type);                       \
+} while (0)
 
 int s2n_kem_recv_public_key_fuzz_test(const uint8_t *buf, size_t len, struct s2n_kem_params *kem_params);
 int s2n_kem_recv_ciphertext_fuzz_test(const uint8_t *buf, size_t len, struct s2n_kem_params *kem_params);

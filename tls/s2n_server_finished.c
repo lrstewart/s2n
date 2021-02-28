@@ -67,7 +67,7 @@ int s2n_server_finished_send(struct s2n_connection *conn)
     /* Update the secure state to active, and point the client at the active state */
     conn->server = &conn->secure;
 
-    if (IS_RESUMPTION_HANDSHAKE(conn->handshake.handshake_type)) {
+    if (IS_RESUMPTION_HANDSHAKE(conn)) {
         GUARD(s2n_prf_key_expansion(conn));
     }
 

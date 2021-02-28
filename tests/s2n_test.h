@@ -75,6 +75,12 @@ int test_count;
 
 #define FAIL()      FAIL_MSG("")
 
+#define FAIL_WITH_INT( msg, i ) do {\
+    char buf[256] = { 0 }; \
+    snprintf(buf, sizeof(buf), "%s %i", msg, (int) i); \
+    FAIL_MSG(buf); \
+} while(0)
+
 #define FAIL_MSG( msg ) do { \
                           FAIL_MSG_PRINT(msg); \
                           exit(1);  \

@@ -249,28 +249,12 @@ static int s2n_connection_zero(struct s2n_connection *conn, int mode, struct s2n
     /* Zero the whole connection structure */
     memset_check(conn, 0, sizeof(struct s2n_connection));
 
-    conn->send = NULL;
-    conn->recv = NULL;
-    conn->send_io_context = NULL;
-    conn->recv_io_context = NULL;
     conn->mode = mode;
-    conn->close_notify_queued = 0;
-    conn->client_session_resumed = 0;
-    conn->current_user_data_consumed = 0;
     conn->initial.cipher_suite = &s2n_null_cipher_suite;
     conn->secure.cipher_suite = &s2n_null_cipher_suite;
-    conn->initial.kem_params.kem = NULL;
-    conn->secure.kem_params.kem = NULL;
     conn->server = &conn->initial;
     conn->client = &conn->initial;
     conn->max_outgoing_fragment_length = S2N_DEFAULT_FRAGMENT_LENGTH;
-    conn->mfl_code = S2N_TLS_MAX_FRAG_LEN_EXT_NONE;
-    conn->handshake.handshake_type = INITIAL;
-    conn->handshake.message_number = 0;
-    conn->handshake.paused = 0;
-    conn->verify_host_fn = NULL;
-    conn->verify_host_fn_overridden = 0;
-    conn->data_for_verify_host = NULL;
     s2n_connection_set_config(conn, config);
 
     return 0;
@@ -1070,8 +1054,8 @@ int s2n_connection_client_cert_used(struct s2n_connection *conn)
 {
     notnull_check(conn);
 
-    if ((conn->handshake.handshake_type & CLIENT_AUTH) && is_handshake_complete(conn)) {
-        if (conn->handshake.handshake_type & NO_CLIENT_CERT) {
+    if (IS_CLIENT_AUTH_HANDSHAKE(conn) && is_handshake_complete(conn)) {
+        if (IS_CLIENT_AUTH_NO_CERT(conn)) {
             return 0;
         }
         return 1;

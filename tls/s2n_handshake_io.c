@@ -132,9 +132,6 @@ static const char *message_names[] = {
     MESSAGE_NAME_ENTRY(APPLICATION_DATA),
 };
 
-/* Maximum number of valid handshakes */
-#define S2N_HANDSHAKES_COUNT        512
-
 /* Maximum number of messages in a handshake */
 #define S2N_MAX_HANDSHAKE_LENGTH    32
 
@@ -501,16 +498,23 @@ static message_type_t tls13_handshakes[S2N_HANDSHAKES_COUNT][S2N_MAX_HANDSHAKE_L
 };
 /* clang-format on */
 
-#define MAX_HANDSHAKE_TYPE_LEN 152
+#define MAX_HANDSHAKE_TYPE_LEN 90
 static char handshake_type_str[S2N_HANDSHAKES_COUNT][MAX_HANDSHAKE_TYPE_LEN] = {0};
 
-static const char* handshake_type_names[] = {
+static const char* tls12_handshake_type_names[] = {
     "NEGOTIATED|",
     "FULL_HANDSHAKE|",
+    "CLIENT_AUTH|",
+    "NO_CLIENT_CERT|",
     "TLS12_PERFECT_FORWARD_SECRECY|",
     "OCSP_STATUS|",
-    "CLIENT_AUTH|",
     "WITH_SESSION_TICKET|",
+};
+
+static const char* tls13_handshake_type_names[] = {
+    "NEGOTIATED|",
+    "FULL_HANDSHAKE|",
+    "CLIENT_AUTH|",
     "NO_CLIENT_CERT|",
     "HELLO_RETRY_REQUEST|",
     "MIDDLEBOX_COMPAT|",
@@ -521,7 +525,7 @@ static const char* handshake_type_names[] = {
 #define ACTIVE_STATE_MACHINE( conn )  (IS_TLS13_HANDSHAKE(conn) ? tls13_state_machine : state_machine)
 #define ACTIVE_HANDSHAKES( conn )     (IS_TLS13_HANDSHAKE(conn) ? tls13_handshakes : handshakes)
 
-#define ACTIVE_MESSAGE( conn )        ACTIVE_HANDSHAKES(conn)[ (conn)->handshake.handshake_type ][ (conn)->handshake.message_number ]
+#define ACTIVE_MESSAGE( conn )        s2n_conn_get_current_message_type(conn)
 
 #define ACTIVE_STATE( conn )          ACTIVE_STATE_MACHINE(conn)[ ACTIVE_MESSAGE( (conn) ) ]
 #define CCS_STATE( conn )             (((conn)->mode == S2N_CLIENT) ? ACTIVE_STATE_MACHINE(conn)[SERVER_CHANGE_CIPHER_SPEC] \
@@ -533,10 +537,14 @@ static const char* handshake_type_names[] = {
 #define CONNECTION_WRITER( conn ) (conn->mode == S2N_CLIENT ? 'C' : 'S')
 #define CONNECTION_IS_WRITER( conn ) (ACTIVE_STATE(conn).writer == CONNECTION_WRITER(conn))
 
-/* Used in our test cases */
 message_type_t s2n_conn_get_current_message_type(struct s2n_connection *conn)
 {
-    return ACTIVE_MESSAGE(conn);
+    uint16_t handshake_type = 0;
+    if (s2n_result_is_ok(s2n_get_handshake_type(conn, &handshake_type))
+            && conn->handshake.message_number < S2N_MAX_HANDSHAKE_LENGTH) {
+        return ACTIVE_HANDSHAKES(conn)[handshake_type][conn->handshake.message_number];
+    }
+    return 0;
 }
 
 static int s2n_advance_message(struct s2n_connection *conn)
@@ -608,7 +616,7 @@ int s2n_set_hello_retry_required(struct s2n_connection *conn)
     notnull_check(conn);
 
     ENSURE_POSIX(conn->actual_protocol_version >= S2N_TLS13, S2N_ERR_INVALID_HELLO_RETRY);
-    conn->handshake.handshake_type |= HELLO_RETRY_REQUEST;
+    GUARD_AS_POSIX(s2n_handshake_type_set_tls13_flag(conn, HELLO_RETRY_REQUEST));
 
     return S2N_SUCCESS;
 }
@@ -620,44 +628,45 @@ bool s2n_is_hello_retry_message(struct s2n_connection *conn)
 
 bool s2n_is_hello_retry_handshake(struct s2n_connection *conn)
 {
-    return conn->handshake.handshake_type & HELLO_RETRY_REQUEST;
+    return IS_HELLO_RETRY_HANDSHAKE(conn);
 }
 
 static S2N_RESULT s2n_conn_set_tls13_handshake_type(struct s2n_connection *conn) {
     ENSURE_REF(conn);
 
-    if (conn->handshake.handshake_type & HELLO_RETRY_REQUEST) {
-        conn->handshake.handshake_type = HELLO_RETRY_REQUEST;
+    if (IS_HELLO_RETRY_HANDSHAKE(conn)) {
+        conn->handshake.handshake_type_tls13 = HELLO_RETRY_REQUEST;
     } else {
-        conn->handshake.handshake_type = INITIAL;
+        conn->handshake.handshake_type_tls13 = INITIAL;
     }
 
     /* A handshake type has been negotiated */
-    conn->handshake.handshake_type |= NEGOTIATED;
+    GUARD_RESULT(s2n_handshake_type_set_flag(conn, NEGOTIATED));
 
     if (conn->psk_params.chosen_psk == NULL) {
-        conn->handshake.handshake_type |= FULL_HANDSHAKE;
+        GUARD_RESULT(s2n_handshake_type_set_flag(conn, FULL_HANDSHAKE));
     }
 
     s2n_cert_auth_type client_cert_auth_type;
     GUARD_AS_RESULT(s2n_connection_get_client_auth_type(conn, &client_cert_auth_type));
 
     if (conn->mode == S2N_CLIENT && client_cert_auth_type == S2N_CERT_AUTH_REQUIRED
-            && conn->handshake.handshake_type & FULL_HANDSHAKE) {
+            && IS_FULL_HANDSHAKE(conn)) {
         /* If we're a client, and Client Auth is REQUIRED, then the Client must expect the CLIENT_CERT_REQ Message */
-        conn->handshake.handshake_type |= CLIENT_AUTH;
+        GUARD_RESULT(s2n_handshake_type_set_flag(conn, CLIENT_AUTH));
     } else if (conn->mode == S2N_SERVER && client_cert_auth_type != S2N_CERT_AUTH_NONE
-            && conn->handshake.handshake_type & FULL_HANDSHAKE) {
+            && IS_FULL_HANDSHAKE(conn)) {
         /* If we're a server, and Client Auth is REQUIRED or OPTIONAL, then the server must send the CLIENT_CERT_REQ Message*/
-        conn->handshake.handshake_type |= CLIENT_AUTH;
+        GUARD_RESULT(s2n_handshake_type_set_flag(conn, CLIENT_AUTH));
     }
 
     /* Use middlebox compatibility mode for TLS1.3 by default.
     * For now, only disable it when QUIC support is enabled. */
     if (!conn->config->quic_enabled) {
-        conn->handshake.handshake_type |= MIDDLEBOX_COMPAT;
+        GUARD_RESULT(s2n_handshake_type_set_tls13_flag(conn, MIDDLEBOX_COMPAT));
     }
 
+    ENSURE_EQ(conn->handshake.handshake_type_tls12, 0);
     return S2N_RESULT_OK;
 }
 
@@ -668,20 +677,18 @@ int s2n_conn_set_handshake_type(struct s2n_connection *conn)
         return S2N_SUCCESS;
     }
 
-    S2N_ERROR_IF(conn->handshake.handshake_type & HELLO_RETRY_REQUEST, S2N_ERR_INVALID_HELLO_RETRY);
-
     /* A handshake type has been negotiated */
-    conn->handshake.handshake_type = NEGOTIATED;
+    conn->handshake.handshake_type_tls12 = NEGOTIATED;
 
     s2n_cert_auth_type client_cert_auth_type;
     GUARD(s2n_connection_get_client_auth_type(conn, &client_cert_auth_type));
 
     if (conn->mode == S2N_CLIENT && client_cert_auth_type == S2N_CERT_AUTH_REQUIRED) {
         /* If we're a client, and Client Auth is REQUIRED, then the Client must expect the CLIENT_CERT_REQ Message */
-        conn->handshake.handshake_type |= CLIENT_AUTH;
+        GUARD_AS_POSIX(s2n_handshake_type_set_flag(conn, CLIENT_AUTH));
     } else if (conn->mode == S2N_SERVER && client_cert_auth_type != S2N_CERT_AUTH_NONE) {
         /* If we're a server, and Client Auth is REQUIRED or OPTIONAL, then the server must send the CLIENT_CERT_REQ Message*/
-        conn->handshake.handshake_type |= CLIENT_AUTH;
+        GUARD_AS_POSIX(s2n_handshake_type_set_flag(conn, CLIENT_AUTH));
     }
 
     if (conn->config->use_tickets) {
@@ -692,7 +699,7 @@ int s2n_conn_set_handshake_type(struct s2n_connection *conn)
 
             if (s2n_config_is_encrypt_decrypt_key_available(conn->config) == 1) {
                 conn->session_ticket_status = S2N_NEW_TICKET;
-                conn->handshake.handshake_type |= WITH_SESSION_TICKET;
+                GUARD_AS_POSIX(s2n_handshake_type_set_tls12_flag(conn, WITH_SESSION_TICKET));
             }
 
             /* If a session ticket is presented by the client, then skip lookup in Session ID server cache */
@@ -700,7 +707,7 @@ int s2n_conn_set_handshake_type(struct s2n_connection *conn)
         }
 
         if (conn->session_ticket_status == S2N_NEW_TICKET) {
-            conn->handshake.handshake_type |= WITH_SESSION_TICKET;
+            GUARD_AS_POSIX(s2n_handshake_type_set_tls12_flag(conn, WITH_SESSION_TICKET));
         }
     }
 
@@ -722,19 +729,20 @@ skip_cache_lookup:
     GUARD(s2n_generate_new_client_session_id(conn));
 
     /* If we get this far, it's a full handshake */
-    conn->handshake.handshake_type |= FULL_HANDSHAKE;
+    GUARD_AS_POSIX(s2n_handshake_type_set_flag(conn, FULL_HANDSHAKE));
 
     bool is_ephemeral = false;
     GUARD_AS_POSIX(s2n_kex_is_ephemeral(conn->secure.cipher_suite->key_exchange_alg, &is_ephemeral));
     if (is_ephemeral) {
-        conn->handshake.handshake_type |= TLS12_PERFECT_FORWARD_SECRECY;
+        GUARD_AS_POSIX(s2n_handshake_type_set_tls12_flag(conn, TLS12_PERFECT_FORWARD_SECRECY));
     }
 
     if (s2n_server_can_send_ocsp(conn) || s2n_server_sent_ocsp(conn)) {
-        conn->handshake.handshake_type |= OCSP_STATUS;
+        GUARD_AS_POSIX(s2n_handshake_type_set_tls12_flag(conn, OCSP_STATUS));
     }
 
-    return 0;
+    eq_check(conn->handshake.handshake_type_tls13, 0);
+    return S2N_SUCCESS;
 }
 
 int s2n_conn_set_handshake_no_client_cert(struct s2n_connection *conn)
@@ -743,7 +751,7 @@ int s2n_conn_set_handshake_no_client_cert(struct s2n_connection *conn)
     GUARD(s2n_connection_get_client_auth_type(conn, &client_cert_auth_type));
     S2N_ERROR_IF(client_cert_auth_type != S2N_CERT_AUTH_OPTIONAL, S2N_ERR_BAD_MESSAGE);
 
-    conn->handshake.handshake_type |= NO_CLIENT_CERT;
+    GUARD_AS_POSIX(s2n_handshake_type_set_flag(conn, NO_CLIENT_CERT));
 
     return 0;
 }
@@ -777,10 +785,20 @@ const char *s2n_connection_get_handshake_type_name(struct s2n_connection *conn)
 {
     notnull_check_ptr(conn);
 
-    int handshake_type = conn->handshake.handshake_type;
+    uint16_t handshake_type = 0;
+    if (s2n_result_is_error(s2n_get_handshake_type(conn, &handshake_type))) {
+        return "INVALID";
+    }
 
     if (handshake_type == INITIAL) {
         return "INITIAL";
+    }
+
+    const char** handshake_type_names = tls13_handshake_type_names;
+    size_t handshake_type_names_len = s2n_array_len(tls13_handshake_type_names);
+    if (s2n_connection_get_protocol_version(conn) < S2N_TLS13) {
+        handshake_type_names = tls12_handshake_type_names;
+        handshake_type_names_len = s2n_array_len(tls12_handshake_type_names);
     }
 
     if (handshake_type_str[handshake_type][0] != '\0') {
@@ -791,7 +809,7 @@ const char *s2n_connection_get_handshake_type_name(struct s2n_connection *conn)
     char *p = handshake_type_str[handshake_type];
     char *end = p + sizeof(handshake_type_str[0]);
 
-    for (int i = 0; i < s2n_array_len(handshake_type_names); ++i) {
+    for (size_t i = 0; i < handshake_type_names_len; ++i) {
         if (handshake_type & (1 << i)) {
             p = s2n_strcpy(p, end, handshake_type_names[i]);
         }
@@ -1091,8 +1109,8 @@ static int s2n_handshake_read_io(struct s2n_connection *conn)
         if (conn->mode == S2N_CLIENT
                 && client_cert_auth_type == S2N_CERT_AUTH_OPTIONAL
                 && message_type == TLS_CERT_REQ) {
-            ENSURE_POSIX(conn->handshake.handshake_type & FULL_HANDSHAKE, S2N_ERR_HANDSHAKE_STATE);
-            conn->handshake.handshake_type |= CLIENT_AUTH;
+            ENSURE_POSIX(IS_FULL_HANDSHAKE(conn), S2N_ERR_HANDSHAKE_STATE);
+            GUARD_AS_POSIX(s2n_handshake_type_set_flag(conn, CLIENT_AUTH));
         }
 
         /* According to rfc6066 section 8, server may choose not to send "CertificateStatus" message even if it has
@@ -1100,7 +1118,7 @@ static int s2n_handshake_read_io(struct s2n_connection *conn)
         if (conn->mode == S2N_CLIENT
                 && EXPECTED_MESSAGE_TYPE(conn) == TLS_SERVER_CERT_STATUS
                 && message_type != TLS_SERVER_CERT_STATUS) {
-            conn->handshake.handshake_type &= ~OCSP_STATUS;
+            GUARD_AS_POSIX(s2n_handshake_type_unset_tls12_flag(conn, OCSP_STATUS));
         }
 
         ENSURE_POSIX(record_type == EXPECTED_RECORD_TYPE(conn), S2N_ERR_BAD_MESSAGE);

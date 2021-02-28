@@ -354,6 +354,7 @@ int main(int argc, char **argv)
     /* Test: TLS 1.2 handshake types are all properly printed */
     {
         struct s2n_connection *conn = s2n_connection_new(S2N_SERVER);
+        conn->actual_protocol_version = S2N_TLS12;
 
         conn->handshake.handshake_type_tls12 = INITIAL;
         EXPECT_STRING_EQUAL("INITIAL", s2n_connection_get_handshake_type_name(conn));
@@ -384,6 +385,10 @@ int main(int argc, char **argv)
             }
         }
 
+        conn->handshake.handshake_type_tls12 = FULL_HANDSHAKE;
+        conn->handshake.handshake_type_tls13 = FULL_HANDSHAKE;
+        EXPECT_STRING_EQUAL("INVALID", s2n_connection_get_handshake_type_name(conn));
+
         EXPECT_SUCCESS(s2n_connection_free(conn));
     }
 
@@ -405,6 +410,33 @@ int main(int argc, char **argv)
             conn->handshake.message_number = i;
             EXPECT_STRING_EQUAL(expected[i], s2n_connection_get_last_message_name(conn));
         }
+
+        EXPECT_SUCCESS(s2n_connection_free(conn));
+    }
+
+    /* Test: TLS1.2 handshake type name maximum size is set correctly.
+     * The maximum size is the size of a name with all flags set. */
+    {
+        size_t correct_size = 0;
+        for (size_t i = 0; i < s2n_array_len(tls12_handshake_type_names); i++) {
+            correct_size += strlen(tls12_handshake_type_names[i]);
+        }
+        if (correct_size > MAX_HANDSHAKE_TYPE_LEN) {
+            FAIL_WITH_INT("MAX_HANDSHAKE_TYPE_LEN must be set to", correct_size);
+        }
+    }
+
+    /* Test: s2n_conn_set_tls13_handshake_type does not allow a TLS1.2 handshake type */
+    {
+        struct s2n_connection *conn = s2n_connection_new(S2N_CLIENT);
+        EXPECT_NOT_NULL(conn);
+        conn->actual_protocol_version = S2N_TLS12;
+
+        conn->handshake.handshake_type_tls13 = 1;
+        EXPECT_FAILURE_WITH_ERRNO(s2n_conn_set_handshake_type(conn), S2N_ERR_SAFETY);
+
+        conn->handshake.handshake_type_tls13 = 0;
+        EXPECT_SUCCESS(s2n_conn_set_handshake_type(conn));
 
         EXPECT_SUCCESS(s2n_connection_free(conn));
     }

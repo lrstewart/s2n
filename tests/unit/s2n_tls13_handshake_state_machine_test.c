@@ -626,20 +626,17 @@ int main(int argc, char **argv)
         EXPECT_SUCCESS(s2n_connection_free(conn));
     }
 
-    /* Test: s2n_conn_set_handshake_type only allows HELLO_RETRY_REQUEST with TLS1.3 */
+    /* Test: s2n_conn_set_tls13_handshake_type does not allow a TLS1.2 handshake type */
     {
         struct s2n_connection *conn = s2n_connection_new(S2N_CLIENT);
-
-        /* HELLO_RETRY_REQUEST allowed with tls1.3 */
+        EXPECT_NOT_NULL(conn);
         conn->actual_protocol_version = S2N_TLS13;
-        conn->handshake.handshake_type_tls13 = INITIAL | HELLO_RETRY_REQUEST;
-        EXPECT_SUCCESS(s2n_conn_set_handshake_type(conn));
-        EXPECT_TRUE(IS_HELLO_RETRY_HANDSHAKE(conn));
 
-        /* HELLO_RETRY_REQUEST not allowed with tls1.2 */
-        conn->actual_protocol_version = S2N_TLS12;
-        conn->handshake.handshake_type_tls13 = INITIAL | HELLO_RETRY_REQUEST;
-        EXPECT_FAILURE_WITH_ERRNO(s2n_conn_set_handshake_type(conn), S2N_ERR_INVALID_HELLO_RETRY);
+        conn->handshake.handshake_type_tls12 = 1;
+        EXPECT_FAILURE_WITH_ERRNO(s2n_conn_set_handshake_type(conn), S2N_ERR_SAFETY);
+
+        conn->handshake.handshake_type_tls12 = 0;
+        EXPECT_SUCCESS(s2n_conn_set_handshake_type(conn));
 
         EXPECT_SUCCESS(s2n_connection_free(conn));
     }
@@ -752,6 +749,10 @@ int main(int argc, char **argv)
                 }
             }
         }
+
+        conn->handshake.handshake_type_tls12 = FULL_HANDSHAKE;
+        conn->handshake.handshake_type_tls13 = FULL_HANDSHAKE;
+        EXPECT_STRING_EQUAL("INVALID", s2n_connection_get_handshake_type_name(conn));
 
         EXPECT_SUCCESS(s2n_connection_free(conn));
     }
