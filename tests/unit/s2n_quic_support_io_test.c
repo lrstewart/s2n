@@ -43,8 +43,6 @@ static S2N_RESULT s2n_setup_conn(struct s2n_connection *conn)
 static S2N_RESULT s2n_setup_conn_for_client_hello(struct s2n_connection *conn)
 {
     GUARD_RESULT(s2n_setup_conn(conn));
-    conn->handshake.handshake_type = INITIAL;
-    conn->handshake.message_number = 0;
     ENSURE_EQ(s2n_conn_get_current_message_type(conn), CLIENT_HELLO);
     return S2N_RESULT_OK;
 }
@@ -69,8 +67,7 @@ static S2N_RESULT s2n_setup_conn_for_server_hello(struct s2n_connection *conn)
     }
 
     /* Set handshake to write message */
-    conn->handshake.handshake_type = NEGOTIATED | FULL_HANDSHAKE;
-    conn->handshake.message_number = 1;
+    GUARD_AS_RESULT(s2n_set_connection_negotiated_full_flags(conn));
     ENSURE_EQ(s2n_conn_get_current_message_type(conn), SERVER_HELLO);
 
     return S2N_RESULT_OK;

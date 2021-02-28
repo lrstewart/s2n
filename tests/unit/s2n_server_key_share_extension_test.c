@@ -29,8 +29,6 @@
 #include "utils/s2n_safety.h"
 #include "pq-crypto/s2n_pq.h"
 
-#define HELLO_RETRY_MSG_NO 1
-
 int s2n_server_key_share_send_check_pq_hybrid(struct s2n_connection *conn);
 int s2n_server_key_share_send_check_ecdhe(struct s2n_connection *conn);
 static int s2n_read_server_key_share_hybrid_test_vectors(const struct s2n_kem_group *kem_group, struct s2n_blob *pq_private_key,
@@ -147,8 +145,7 @@ int main(int argc, char **argv)
         struct s2n_connection *conn = NULL;
         EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_SERVER));
         conn->actual_protocol_version = S2N_TLS13;
-        conn->handshake.handshake_type = HELLO_RETRY_REQUEST;
-        conn->handshake.message_number = HELLO_RETRY_MSG_NO;
+        EXPECT_SUCCESS(s2n_set_connection_hello_retry_flags(conn));
 
         const struct s2n_ecc_preferences *ecc_pref = NULL;
         EXPECT_SUCCESS(s2n_connection_get_ecc_preferences(conn, &ecc_pref));
@@ -647,8 +644,7 @@ int main(int argc, char **argv)
                     EXPECT_NOT_NULL(client_conn = s2n_connection_new(S2N_CLIENT));
                     client_conn->security_policy_override = &test_security_policy;
                     client_conn->actual_protocol_version = S2N_TLS13;
-                    client_conn->handshake.handshake_type = HELLO_RETRY_REQUEST;
-                    client_conn->handshake.message_number = HELLO_RETRY_MSG_NO;
+                    EXPECT_SUCCESS(s2n_set_connection_hello_retry_flags(client_conn));
                     client_conn->actual_protocol_version_established = 1;
 
                     /* In the HRR, the server indicated p256+BIKE as it's choice in the key share extension */
@@ -896,8 +892,7 @@ int main(int argc, char **argv)
             EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_SERVER));
             conn->security_policy_override = &test_security_policy;
             conn->actual_protocol_version = S2N_TLS13;
-            conn->handshake.handshake_type = HELLO_RETRY_REQUEST;
-            conn->handshake.message_number = HELLO_RETRY_MSG_NO;
+            EXPECT_SUCCESS(s2n_set_connection_hello_retry_flags(conn));
 
             const struct s2n_kem_preferences *kem_pref = NULL;
             EXPECT_SUCCESS(s2n_connection_get_kem_preferences(conn, &kem_pref));

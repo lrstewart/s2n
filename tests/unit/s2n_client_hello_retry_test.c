@@ -651,8 +651,8 @@ int main(int argc, char **argv)
         EXPECT_SUCCESS(s2n_set_hello_retry_required(client_conn));
         client_conn->secure.cipher_suite = &s2n_tls13_aes_256_gcm_sha384;
         client_conn->server_protocol_version = S2N_TLS13;
-        client_conn->handshake.handshake_type |= NEGOTIATED;
-        client_conn->handshake.handshake_type |= FULL_HANDSHAKE;
+        EXPECT_OK(s2n_handshake_type_set_flag(client_conn, NEGOTIATED));
+        EXPECT_OK(s2n_handshake_type_set_flag(client_conn, FULL_HANDSHAKE));
         client_conn->handshake.message_number = SERVER_HELLO_MSG_NO;
 
         /* Server Hello with cipher suite that does not match Hello Retry Request cipher suite */

@@ -121,22 +121,20 @@ int main(int argc, char **argv)
             const s2n_hmac_algorithm different_hmac_alg = conn->secure.cipher_suite->prf_alg + 1;
 
             /* Do send if the PSK does NOT match the cipher suite, but this is NOT a retry */
-            conn->handshake.handshake_type = INITIAL;
             psk->hmac_alg = different_hmac_alg;
             EXPECT_TRUE(s2n_client_psk_extension.should_send(conn));
 
+            EXPECT_OK(s2n_handshake_type_set_tls13_flag(conn, HELLO_RETRY_REQUEST));
+
             /* Do send if the PSK matches the cipher suite */
-            conn->handshake.handshake_type = HELLO_RETRY_REQUEST;
             psk->hmac_alg = matching_hmac_alg;
             EXPECT_TRUE(s2n_client_psk_extension.should_send(conn));
 
             /* Do NOT send if the PSK does NOT match the cipher suite */
-            conn->handshake.handshake_type = HELLO_RETRY_REQUEST;
             psk->hmac_alg = different_hmac_alg;
             EXPECT_FALSE(s2n_client_psk_extension.should_send(conn));
 
             /* Do send if there are two PSKs, and one matches the cipher suite */
-            conn->handshake.handshake_type = HELLO_RETRY_REQUEST;
             psk->hmac_alg = different_hmac_alg;
             EXPECT_OK(s2n_array_pushback(&conn->psk_params.psk_list, (void**) &psk));
             psk->hmac_alg = matching_hmac_alg;
@@ -275,7 +273,7 @@ int main(int argc, char **argv)
 
             struct s2n_connection *conn;
             EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_CLIENT));
-            conn->handshake.handshake_type = HELLO_RETRY_REQUEST;
+            EXPECT_OK(s2n_handshake_type_set_tls13_flag(conn, HELLO_RETRY_REQUEST));
             conn->secure.cipher_suite = &s2n_tls13_aes_256_gcm_sha384;
             EXPECT_EQUAL(conn->secure.cipher_suite->prf_alg, matching_psk.hmac_alg);
 

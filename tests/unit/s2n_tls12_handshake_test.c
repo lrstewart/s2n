@@ -121,7 +121,7 @@ int main(int argc, char **argv)
         for (int i = 0; i < valid_tls12_handshakes_size; i++) {
             int handshake = valid_tls12_handshakes[i];
 
-            conn->handshake.handshake_type = handshake;
+            conn->handshake.handshake_type_tls12 = handshake;
 
             for (int j = 0; j < S2N_MAX_HANDSHAKE_LENGTH; j++) {
                 if (handshakes[handshake][j] == CLIENT_CHANGE_CIPHER_SPEC) {
@@ -148,7 +148,7 @@ int main(int argc, char **argv)
         for (int i = 0; i < valid_tls12_handshakes_size; i++) {
             int handshake = valid_tls12_handshakes[i];
 
-            conn->handshake.handshake_type = handshake;
+            conn->handshake.handshake_type_tls12 = handshake;
 
             for (int j = 0; j < S2N_MAX_HANDSHAKE_LENGTH; j++) {
                 if (handshakes[handshake][j] == SERVER_CHANGE_CIPHER_SPEC) {
@@ -180,7 +180,7 @@ int main(int argc, char **argv)
         for (int i = 0; i < valid_tls12_handshakes_size; i++) {
             int handshake = valid_tls12_handshakes[i];
 
-            conn->handshake.handshake_type = handshake;
+            conn->handshake.handshake_type_tls12 = handshake;
 
             for (int j = 1; j < S2N_MAX_HANDSHAKE_LENGTH; j++) {
                 EXPECT_SUCCESS(s2n_setup_handler_to_expect(SERVER_CHANGE_CIPHER_SPEC, S2N_CLIENT));
@@ -220,7 +220,7 @@ int main(int argc, char **argv)
         for (int i = 0; i < valid_tls12_handshakes_size; i++) {
             int handshake = valid_tls12_handshakes[i];
 
-            conn->handshake.handshake_type = handshake;
+            conn->handshake.handshake_type_tls12 = handshake;
 
             for (int j = 1; j < S2N_MAX_HANDSHAKE_LENGTH; j++) {
                 EXPECT_SUCCESS(s2n_setup_handler_to_expect(CLIENT_CHANGE_CIPHER_SPEC, S2N_SERVER));
@@ -258,7 +258,7 @@ int main(int argc, char **argv)
             EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&input, 0));
             EXPECT_SUCCESS(s2n_connection_set_io_stuffers(&input, NULL, conn));
 
-            conn->handshake.handshake_type = 0;
+            conn->handshake.handshake_type_tls12 = 0;
             conn->handshake.message_number = 0;
             EXPECT_EQUAL(ACTIVE_MESSAGE(conn), CLIENT_HELLO);
             EXPECT_SUCCESS(s2n_setup_handler_to_expect(CLIENT_HELLO, S2N_SERVER));
@@ -283,7 +283,7 @@ int main(int argc, char **argv)
             EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&input, 0));
             EXPECT_SUCCESS(s2n_connection_set_io_stuffers(&input, NULL, conn));
 
-            conn->handshake.handshake_type = 0;
+            conn->handshake.handshake_type_tls12 = 0;
             conn->handshake.message_number = 0;
             EXPECT_EQUAL(ACTIVE_MESSAGE(conn), CLIENT_HELLO);
             EXPECT_SUCCESS(s2n_setup_handler_to_expect(CLIENT_HELLO, S2N_SERVER));
@@ -308,7 +308,7 @@ int main(int argc, char **argv)
             EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&input, 0));
             EXPECT_SUCCESS(s2n_connection_set_io_stuffers(&input, NULL, conn));
 
-            conn->handshake.handshake_type = 0;
+            conn->handshake.handshake_type_tls12 = 0;
             conn->handshake.message_number = 0;
             EXPECT_EQUAL(ACTIVE_MESSAGE(conn), CLIENT_HELLO);
             EXPECT_SUCCESS(s2n_setup_handler_to_expect(CLIENT_HELLO, S2N_SERVER));
@@ -334,7 +334,7 @@ int main(int argc, char **argv)
             EXPECT_SUCCESS(s2n_connection_set_io_stuffers(&input, NULL, conn));
 
             uint8_t server_css_message_number = 2;
-            conn->handshake.handshake_type = NEGOTIATED;
+            conn->handshake.handshake_type_tls12 = NEGOTIATED;
             conn->handshake.message_number = server_css_message_number;
             EXPECT_EQUAL(ACTIVE_MESSAGE(conn), SERVER_CHANGE_CIPHER_SPEC);
             EXPECT_SUCCESS(s2n_setup_handler_to_expect(SERVER_CHANGE_CIPHER_SPEC, S2N_CLIENT));
@@ -355,27 +355,27 @@ int main(int argc, char **argv)
     {
         struct s2n_connection *conn = s2n_connection_new(S2N_SERVER);
 
-        conn->handshake.handshake_type = INITIAL;
+        conn->handshake.handshake_type_tls12 = INITIAL;
         EXPECT_STRING_EQUAL("INITIAL", s2n_connection_get_handshake_type_name(conn));
 
-        conn->handshake.handshake_type = NEGOTIATED | FULL_HANDSHAKE;
+        conn->handshake.handshake_type_tls12 = NEGOTIATED | FULL_HANDSHAKE;
         EXPECT_STRING_EQUAL("NEGOTIATED|FULL_HANDSHAKE", s2n_connection_get_handshake_type_name(conn));
 
-        const char* all_flags_handshake_type_name = "NEGOTIATED|FULL_HANDSHAKE|TLS12_PERFECT_FORWARD_SECRECY|"
-                "OCSP_STATUS|CLIENT_AUTH|WITH_SESSION_TICKET|NO_CLIENT_CERT";
-        conn->handshake.handshake_type = NEGOTIATED | FULL_HANDSHAKE | TLS12_PERFECT_FORWARD_SECRECY | \
-                OCSP_STATUS | CLIENT_AUTH | WITH_SESSION_TICKET | NO_CLIENT_CERT;
+        const char* all_flags_handshake_type_name = "NEGOTIATED|FULL_HANDSHAKE|CLIENT_AUTH|NO_CLIENT_CERT|"
+                "TLS12_PERFECT_FORWARD_SECRECY|OCSP_STATUS|WITH_SESSION_TICKET";
+        conn->handshake.handshake_type_tls12 = NEGOTIATED | FULL_HANDSHAKE | CLIENT_AUTH | NO_CLIENT_CERT | \
+                TLS12_PERFECT_FORWARD_SECRECY | OCSP_STATUS | WITH_SESSION_TICKET;
         EXPECT_STRING_EQUAL(all_flags_handshake_type_name, s2n_connection_get_handshake_type_name(conn));
 
         const char *handshake_type_name;
         for (int i = 0; i < valid_tls12_handshakes_size; i++) {
-            conn->handshake.handshake_type = i;
+            conn->handshake.handshake_type_tls12 = i;
 
             handshake_type_name = s2n_connection_get_handshake_type_name(conn);
 
             /* The handshake type names must be unique */
             for (int j = 0; j < valid_tls12_handshakes_size; j++) {
-                conn->handshake.handshake_type = j;
+                conn->handshake.handshake_type_tls12 = j;
                 if (i == j) {
                     EXPECT_STRING_EQUAL(handshake_type_name, s2n_connection_get_handshake_type_name(conn));
                 } else {
@@ -399,7 +399,7 @@ int main(int argc, char **argv)
 
         struct s2n_connection *conn = s2n_connection_new(S2N_SERVER);
 
-        conn->handshake.handshake_type = test_handshake_type;
+        conn->handshake.handshake_type_tls12 = test_handshake_type;
 
         for (int i=0; i < sizeof(expected) / sizeof(char *); i++) {
             conn->handshake.message_number = i;

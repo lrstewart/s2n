@@ -51,12 +51,13 @@ int main(int argc, char **argv)
         EXPECT_NOT_NULL(client_conn = s2n_connection_new(S2N_CLIENT));
         EXPECT_SUCCESS(s2n_connection_set_config(client_conn, client_config));
         EXPECT_SUCCESS(s2n_connection_set_client_auth_type(client_conn, S2N_CERT_AUTH_OPTIONAL));
+        EXPECT_OK(s2n_handshake_type_set_flag(client_conn, CLIENT_AUTH));
 
         /* client send empty cert */
         EXPECT_SUCCESS(s2n_client_cert_send(client_conn));
 
         /* verify post-conditions */
-        EXPECT_TRUE(client_conn->handshake.handshake_type & NO_CLIENT_CERT);
+        EXPECT_TRUE(IS_CLIENT_AUTH_NO_CERT(client_conn));
         /* Magic number 3 is the length of the certificate_length field */
         EXPECT_EQUAL(s2n_stuffer_data_available(&client_conn->handshake.io), 3);
 
@@ -94,16 +95,18 @@ int main(int argc, char **argv)
         EXPECT_NOT_NULL(client_conn = s2n_connection_new(S2N_CLIENT));
         EXPECT_SUCCESS(s2n_connection_set_config(client_conn, config));
         EXPECT_SUCCESS(s2n_connection_set_client_auth_type(client_conn, S2N_CERT_AUTH_OPTIONAL));
+        EXPECT_OK(s2n_handshake_type_set_flag(client_conn, CLIENT_AUTH));
 
         struct s2n_connection *server_conn;
         EXPECT_NOT_NULL(server_conn = s2n_connection_new(S2N_SERVER));
         EXPECT_SUCCESS(s2n_connection_set_config(server_conn, config));
         EXPECT_SUCCESS(s2n_connection_set_client_auth_type(server_conn, S2N_CERT_AUTH_OPTIONAL));
+        EXPECT_OK(s2n_handshake_type_set_flag(server_conn, CLIENT_AUTH));
 
         /* client send empty cert */
         EXPECT_SUCCESS(s2n_client_cert_send(client_conn));
 
-        EXPECT_TRUE(client_conn->handshake.handshake_type & NO_CLIENT_CERT);
+        EXPECT_TRUE(IS_CLIENT_AUTH_NO_CERT(client_conn));
         /* Magic number 3 is the length of the certificate_length field */
         EXPECT_EQUAL(s2n_stuffer_data_available(&client_conn->handshake.io), 3);
 
@@ -112,7 +115,7 @@ int main(int argc, char **argv)
 
         /* server receives empty cert */
         EXPECT_SUCCESS(s2n_client_cert_recv(server_conn));
-        EXPECT_TRUE(server_conn->handshake.handshake_type & NO_CLIENT_CERT);
+        EXPECT_TRUE(IS_CLIENT_AUTH_NO_CERT(server_conn));
 
         EXPECT_SUCCESS(s2n_connection_free(server_conn));
         EXPECT_SUCCESS(s2n_connection_free(client_conn));

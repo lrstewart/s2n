@@ -27,9 +27,6 @@ int main(int argc, char **argv)
     BEGIN_TEST();
     EXPECT_SUCCESS(s2n_disable_tls13());
 
-    EXPECT_TRUE(IS_RESUMPTION_HANDSHAKE(S2N_TEST_RESUMPTION_HANDSHAKE));
-    EXPECT_FALSE(IS_RESUMPTION_HANDSHAKE(S2N_TEST_NOT_RESUMPTION_HANDSHAKE));
-
     /* should_send */
     {
         struct s2n_connection *conn;
@@ -40,22 +37,22 @@ int main(int argc, char **argv)
 
         /* server_name not used and resumption handshake -> do not send */
         conn->server_name_used = false;
-        conn->handshake.handshake_type = S2N_TEST_RESUMPTION_HANDSHAKE;
+        conn->handshake.handshake_type_tls12 = S2N_TEST_RESUMPTION_HANDSHAKE;
         EXPECT_FALSE(s2n_server_server_name_extension.should_send(conn));
 
         /* server_name used and resumption handshake -> do not send */
         conn->server_name_used = true;
-        conn->handshake.handshake_type = S2N_TEST_RESUMPTION_HANDSHAKE;
+        conn->handshake.handshake_type_tls12 = S2N_TEST_RESUMPTION_HANDSHAKE;
         EXPECT_FALSE(s2n_server_server_name_extension.should_send(conn));
 
         /* server_name not used and not resumption handshake -> do not send */
         conn->server_name_used = false;
-        conn->handshake.handshake_type = S2N_TEST_NOT_RESUMPTION_HANDSHAKE;
+        conn->handshake.handshake_type_tls12 = S2N_TEST_NOT_RESUMPTION_HANDSHAKE;
         EXPECT_FALSE(s2n_server_server_name_extension.should_send(conn));
 
         /* server_name used and not resumption handshake -> send */
         conn->server_name_used = true;
-        conn->handshake.handshake_type = S2N_TEST_NOT_RESUMPTION_HANDSHAKE;
+        conn->handshake.handshake_type_tls12 = S2N_TEST_NOT_RESUMPTION_HANDSHAKE;
         EXPECT_TRUE(s2n_server_server_name_extension.should_send(conn));
 
         EXPECT_SUCCESS(s2n_connection_free(conn));

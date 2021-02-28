@@ -76,7 +76,8 @@ int main(int argc, char **argv)
     EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_SERVER));
 
     /* Initialize *some* handshake type. Not terribly relevant for this test. */
-    conn->handshake.handshake_type = NEGOTIATED | FULL_HANDSHAKE | TLS12_PERFECT_FORWARD_SECRECY;
+    EXPECT_SUCCESS(s2n_set_connection_negotiated_full_flags(conn));
+    EXPECT_OK(s2n_handshake_type_set_tls12_flag(conn, TLS12_PERFECT_FORWARD_SECRECY));
     /* Fast forward the handshake state machine to the end of this "handshake_type".
      * APPLICATION_DATA is the 11th state for "NEGOTIATED | FULL_HANDSHAKE | TLS12_PERFECT_FORWARD_SECRECY".
      */

@@ -542,7 +542,7 @@ int main(int argc, char **argv)
         /* Verify that the sent client hello message is accepted */
         s2n_negotiate(server_conn, &server_blocked);
         EXPECT_TRUE(s2n_conn_get_current_message_type(server_conn) > CLIENT_HELLO);
-        EXPECT_EQUAL(server_conn->handshake.handshake_type, NEGOTIATED | FULL_HANDSHAKE);
+        EXPECT_HANDSHAKE_TYPE(server_conn, NEGOTIATED | FULL_HANDSHAKE);
 
         struct s2n_client_hello *client_hello = s2n_connection_get_client_hello(server_conn);
 
@@ -723,7 +723,7 @@ int main(int argc, char **argv)
         /* Verify that the sent client hello message is accepted */
         s2n_negotiate(server_conn, &server_blocked);
         EXPECT_TRUE(s2n_conn_get_current_message_type(server_conn) > CLIENT_HELLO);
-        EXPECT_EQUAL(server_conn->handshake.handshake_type, NEGOTIATED | FULL_HANDSHAKE);
+        EXPECT_HANDSHAKE_TYPE(server_conn, NEGOTIATED | FULL_HANDSHAKE);
 
         struct s2n_client_hello *client_hello = s2n_connection_get_client_hello(server_conn);
 
@@ -902,7 +902,7 @@ int main(int argc, char **argv)
         /* Verify that the sent client hello message is accepted */
         s2n_negotiate(server_conn, &server_blocked);
         EXPECT_TRUE(s2n_conn_get_current_message_type(server_conn) > CLIENT_HELLO);
-        EXPECT_EQUAL(server_conn->handshake.handshake_type, NEGOTIATED | FULL_HANDSHAKE);
+        EXPECT_HANDSHAKE_TYPE(server_conn, NEGOTIATED | FULL_HANDSHAKE);
 
         /* Verify the collected client hello on the reused connection matches the expected client hello */
         client_hello = s2n_connection_get_client_hello(server_conn);
@@ -1025,7 +1025,7 @@ int main(int argc, char **argv)
         /* Verify that the sent client hello message is accepted */
         s2n_negotiate(server_conn, &server_blocked);
         EXPECT_TRUE(s2n_conn_get_current_message_type(server_conn) > CLIENT_HELLO);
-        EXPECT_EQUAL(server_conn->handshake.handshake_type, NEGOTIATED | FULL_HANDSHAKE);
+        EXPECT_HANDSHAKE_TYPE(server_conn, NEGOTIATED | FULL_HANDSHAKE);
         /* Client sent an invalid legacy protocol version. We should still have negotiate the maximum value(TLS1.2) */
         EXPECT_EQUAL(server_conn->actual_protocol_version, S2N_TLS12);
 

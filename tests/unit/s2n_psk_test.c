@@ -344,7 +344,7 @@ int main(int argc, char **argv)
         {
             struct s2n_connection *conn;
             EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_CLIENT));
-            conn->handshake.handshake_type = HELLO_RETRY_REQUEST;
+            EXPECT_OK(s2n_handshake_type_set_tls13_flag(conn, HELLO_RETRY_REQUEST));
             conn->secure.cipher_suite = &s2n_tls13_aes_128_gcm_sha256;
 
             struct s2n_stuffer out = { 0 };

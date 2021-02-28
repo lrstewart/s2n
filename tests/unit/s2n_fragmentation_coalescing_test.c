@@ -14,6 +14,7 @@
  */
 
 #include "s2n_test.h"
+#include "testlib/s2n_testlib.h"
 
 #include <sys/wait.h>
 #include <unistd.h>
@@ -424,8 +425,7 @@ int main(int argc, char **argv)
     EXPECT_SUCCESS(s2n_connection_set_read_fd(conn, p[0]));
 
     /* Pretend the client hello has already been set */
-    conn->handshake.handshake_type = NEGOTIATED | FULL_HANDSHAKE;
-    conn->handshake.message_number = SERVER_HELLO;
+    EXPECT_SUCCESS(s2n_set_connection_negotiated_full_flags(conn));
 
     /* Create a child process */
     pid = fork();
@@ -470,8 +470,7 @@ int main(int argc, char **argv)
     EXPECT_SUCCESS(s2n_connection_set_read_fd(conn, p[0]));
 
     /* Pretend the client hello has already been set */
-    conn->handshake.handshake_type = NEGOTIATED | FULL_HANDSHAKE;
-    conn->handshake.message_number = SERVER_HELLO;
+    EXPECT_SUCCESS(s2n_set_connection_negotiated_full_flags(conn));
 
     /* Create a child process */
     pid = fork();
@@ -516,8 +515,7 @@ int main(int argc, char **argv)
     EXPECT_SUCCESS(s2n_connection_set_read_fd(conn, p[0]));
 
     /* Pretend the client hello has already been set */
-    conn->handshake.handshake_type = NEGOTIATED | FULL_HANDSHAKE;
-    conn->handshake.message_number = SERVER_HELLO;
+    EXPECT_SUCCESS(s2n_set_connection_negotiated_full_flags(conn));
 
     /* Create a child process */
     pid = fork();
@@ -562,8 +560,7 @@ int main(int argc, char **argv)
     EXPECT_SUCCESS(s2n_connection_set_read_fd(conn, p[0]));
 
     /* Pretend the client hello has already been set */
-    conn->handshake.handshake_type = NEGOTIATED | FULL_HANDSHAKE;
-    conn->handshake.message_number = SERVER_HELLO;
+    EXPECT_SUCCESS(s2n_set_connection_negotiated_full_flags(conn));
 
     /* Create a child process */
     pid = fork();
@@ -608,8 +605,7 @@ int main(int argc, char **argv)
     EXPECT_SUCCESS(s2n_connection_set_read_fd(conn, p[0]));
 
     /* Pretend the client hello has already been set */
-    conn->handshake.handshake_type = NEGOTIATED | FULL_HANDSHAKE;
-    conn->handshake.message_number = SERVER_HELLO;
+    EXPECT_SUCCESS(s2n_set_connection_negotiated_full_flags(conn));
 
     /* Create a child process */
     pid = fork();

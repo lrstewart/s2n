@@ -79,7 +79,7 @@ static int s2n_test_tls13_handle_secrets(s2n_mode mode, uint8_t version, message
         eq_check(memcmp(empty_secret.data, client_secrets.extract_secret.data, client_secrets.extract_secret.size), 0);
 
         /* verify that that is the initial secret state */
-        conn->handshake.handshake_type = NEGOTIATED | FULL_HANDSHAKE;
+        EXPECT_SUCCESS(s2n_set_connection_negotiated_full_flags(conn));
         conn->handshake.message_number = i;
 
         GUARD(s2n_tls13_handle_secrets(conn));
@@ -392,7 +392,7 @@ int main(int argc, char **argv)
                             EXPECT_SUCCESS(s2n_setup_tls13_secrets_prereqs(conn));
 
                             conn->actual_protocol_version = version;
-                            conn->handshake.handshake_type = NEGOTIATED | FULL_HANDSHAKE;
+                            EXPECT_SUCCESS(s2n_set_connection_negotiated_full_flags(conn));
                             conn->handshake.message_number = i;
 
                             EXPECT_SUCCESS(s2n_connection_set_secret_callback(conn, s2n_test_secret_handler, secrets_handled));
@@ -429,7 +429,7 @@ int main(int argc, char **argv)
                         EXPECT_SUCCESS(s2n_setup_tls13_secrets_prereqs(conn));
 
                         conn->actual_protocol_version = S2N_TLS13;
-                        conn->handshake.handshake_type = NEGOTIATED | FULL_HANDSHAKE;
+                        EXPECT_SUCCESS(s2n_set_connection_negotiated_full_flags(conn));
                         conn->handshake.message_number = i;
 
                         EXPECT_SUCCESS(s2n_connection_set_secret_callback(conn, s2n_test_secret_handler, secrets_handled));
@@ -500,14 +500,14 @@ int main(int argc, char **argv)
         s2n_tls13_connection_keys(server_secrets_0, server_conn);
         EXPECT_EQUAL(server_secrets_0.size, 0);
 
-        EXPECT_EQUAL(server_conn->handshake.handshake_type, INITIAL);
+        EXPECT_HANDSHAKE_TYPE(server_conn, INITIAL);
 
         /* Server reads ClientHello */
         EXPECT_EQUAL(s2n_conn_get_current_message_type(server_conn), CLIENT_HELLO);
         EXPECT_SUCCESS(s2n_handshake_read_io(server_conn));
 
         EXPECT_EQUAL(server_conn->actual_protocol_version, S2N_TLS13); /* Server is now on TLS13 */
-        EXPECT_EQUAL(server_conn->handshake.handshake_type, NEGOTIATED | FULL_HANDSHAKE | MIDDLEBOX_COMPAT);
+        EXPECT_HANDSHAKE_TYPE(server_conn, NEGOTIATED | FULL_HANDSHAKE | MIDDLEBOX_COMPAT);
 
         s2n_tls13_connection_keys(server_secrets, server_conn);
         EXPECT_EQUAL(server_secrets.size, 48);

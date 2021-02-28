@@ -29,8 +29,6 @@
 #include "utils/s2n_safety.h"
 #include "pq-crypto/s2n_pq.h"
 
-#define HELLO_RETRY_MSG_NO 1
-
 static int s2n_generate_pq_hybrid_key_share_for_test(struct s2n_stuffer *out, struct s2n_kem_group_params *kem_group_params);
 static int s2n_copy_pq_share(struct s2n_stuffer *from, struct s2n_blob *to, const struct s2n_kem_group *kem_group);
 
@@ -276,8 +274,7 @@ int main() {
 
                         /* Prepare client for HRR. Client would have sent a key share for kem_pref->tls13_kem_groups[0],
                          * but server selects something else for negotiation. */
-                        conn->handshake.handshake_type = HELLO_RETRY_REQUEST;
-                        conn->handshake.message_number = HELLO_RETRY_MSG_NO;
+                        EXPECT_SUCCESS(s2n_set_connection_hello_retry_flags(conn));
                         conn->actual_protocol_version_established = 1;
                         uint8_t chosen_index = kem_pref->tls13_kem_group_count - 1;
                         EXPECT_NOT_EQUAL(chosen_index, 0);
@@ -357,8 +354,7 @@ int main() {
                     EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_CLIENT));
                     conn->security_policy_override = &security_policy_sike;
                     conn->actual_protocol_version = S2N_TLS13;
-                    conn->handshake.handshake_type = HELLO_RETRY_REQUEST;
-                    conn->handshake.message_number = HELLO_RETRY_MSG_NO;
+                    EXPECT_SUCCESS(s2n_set_connection_hello_retry_flags(conn));
                     conn->actual_protocol_version_established = 1;
 
                     conn->secure.server_kem_group_params.kem_group = &s2n_secp256r1_bike1_l1_r2;

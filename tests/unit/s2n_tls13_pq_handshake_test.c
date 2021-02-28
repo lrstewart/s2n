@@ -73,7 +73,10 @@ int s2n_test_tls13_pq_handshake(const struct s2n_security_policy *client_sec_pol
 
     eq_check(client_conn->actual_protocol_version, S2N_TLS13);
     eq_check(server_conn->actual_protocol_version, 0); /* Won't get set until after server reads ClientHello */
-    eq_check(client_conn->handshake.handshake_type,  INITIAL);
+
+    uint16_t handshake_type = 0;
+    GUARD_AS_POSIX(s2n_get_handshake_type(client_conn, &handshake_type));
+    eq_check(handshake_type,  INITIAL);
 
     /* Server reads ClientHello */
     eq_check(s2n_conn_get_current_message_type(server_conn), CLIENT_HELLO);
@@ -112,7 +115,7 @@ int s2n_test_tls13_pq_handshake(const struct s2n_security_policy *client_sec_pol
         eq_check(s2n_conn_get_current_message_type(client_conn), SERVER_HELLO);
         GUARD(s2n_handshake_read_io(client_conn));
         GUARD(s2n_conn_set_handshake_type(client_conn));
-        ne_check(0, client_conn->handshake.handshake_type & HELLO_RETRY_REQUEST);
+        ne_check(0, IS_HELLO_RETRY_HANDSHAKE(client_conn));
 
         /* Client reads CCS */
         eq_check(s2n_conn_get_current_message_type(client_conn), CLIENT_CHANGE_CIPHER_SPEC);

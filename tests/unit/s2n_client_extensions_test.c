@@ -358,7 +358,7 @@ int main(int argc, char **argv)
         /* Verify that the CLIENT HELLO is accepted */
         s2n_negotiate(server_conn, &server_blocked);
         EXPECT_TRUE(s2n_conn_get_current_message_type(server_conn) > CLIENT_HELLO);
-        EXPECT_EQUAL(server_conn->handshake.handshake_type, NEGOTIATED | FULL_HANDSHAKE);
+        EXPECT_HANDSHAKE_TYPE(server_conn, NEGOTIATED | FULL_HANDSHAKE);
 
         /* Verify that the server name was received intact. */
         EXPECT_NOT_NULL(received_server_name = s2n_get_server_name(server_conn));
@@ -564,7 +564,7 @@ int main(int argc, char **argv)
         /* Verify that the CLIENT HELLO is accepted */
         s2n_negotiate(server_conn, &server_blocked);
         EXPECT_TRUE(s2n_conn_get_current_message_type(server_conn) > CLIENT_HELLO);
-        EXPECT_EQUAL(server_conn->handshake.handshake_type & NEGOTIATED, NEGOTIATED);
+        EXPECT_TRUE(IS_NEGOTIATED(server_conn));
 
         /* Verify that the that we detected secure_renegotiation */
         EXPECT_EQUAL(server_conn->secure_renegotiation, 1);

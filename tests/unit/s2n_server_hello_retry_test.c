@@ -420,7 +420,7 @@ int main(int argc, char **argv)
         EXPECT_SUCCESS(s2n_connection_set_all_protocol_versions(conn, S2N_TLS13));
 
         EXPECT_SUCCESS(s2n_set_hello_retry_required(conn));
-        EXPECT_TRUE(conn->handshake.handshake_type & HELLO_RETRY_REQUEST);
+        EXPECT_TRUE(IS_HELLO_RETRY_HANDSHAKE(conn));
 
         EXPECT_SUCCESS(s2n_connection_free(conn));
     }
@@ -433,7 +433,7 @@ int main(int argc, char **argv)
         conn->actual_protocol_version = S2N_TLS12;
 
         EXPECT_FAILURE_WITH_ERRNO(s2n_set_hello_retry_required(conn), S2N_ERR_INVALID_HELLO_RETRY);
-        EXPECT_FALSE(conn->handshake.handshake_type & HELLO_RETRY_REQUEST);
+        EXPECT_FALSE(IS_HELLO_RETRY_HANDSHAKE(conn));
 
         EXPECT_SUCCESS(s2n_connection_free(conn));
     }
