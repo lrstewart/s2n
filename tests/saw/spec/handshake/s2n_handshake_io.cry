@@ -158,7 +158,7 @@ type connection = {handshake : handshake
                   ,no_client_cert : Bit
                   }
 
-type handshake = {handshake_type : [32]
+type handshake = {handshake_type : [16]
                  ,message_number : [32]
                  }
 
@@ -170,7 +170,7 @@ IS_TLS13_HANDSHAKE conn = conn.actual_protocol_version == S2N_TLS13
 ACTIVE_STATE_MACHINE : connection -> [19]handshake_action
 ACTIVE_STATE_MACHINE conn = if IS_TLS13_HANDSHAKE conn then tls13_state_machine else state_machine # zero
 
-ACTIVE_HANDSHAKES : connection -> [512][32][32]
+ACTIVE_HANDSHAKES : connection -> [128][32][32]
 ACTIVE_HANDSHAKES conn = if IS_TLS13_HANDSHAKE conn then tls13_handshakes else handshakes
 
 ACTIVE_MESSAGE : connection -> [32]
@@ -257,11 +257,11 @@ state_machine_fn m =
   else zero
 
 // A model of the tls1.3 handshake state machine (array handshakes in C)
-tls13_handshakes : [512][32][32]
-tls13_handshakes = [tls13_handshakes_fn h | h <- [0..511]]
+tls13_handshakes : [128][32][32]
+tls13_handshakes = [tls13_handshakes_fn h | h <- [0..127]]
 
 // A function that gives the tls1.3 handshake sequence for each valid handshake_type.
-tls13_handshakes_fn: [32] -> [32][32]
+tls13_handshakes_fn: [16] -> [32][32]
 tls13_handshakes_fn handshk =
   if handshk == INITIAL then [CLIENT_HELLO, SERVER_HELLO] # zero
   else if handshk == (NEGOTIATED || FULL_HANDSHAKE) then
@@ -285,12 +285,12 @@ tls13_handshakes_fn handshk =
   else zero
 
 // A model of the handshake state machine (array handshakes in C)
-handshakes : [512][32][32]
-handshakes = [handshakes_fn h | h <- [0..511]]
+handshakes : [128][32][32]
+handshakes = [handshakes_fn h | h <- [0..127]]
 
 // A function that gives the handshake sequence for each valid handshake_type.
 // This is a sparse encoding of the handshakes array (which is sparse too).
-handshakes_fn : [32] -> [32][32]
+handshakes_fn : [16] -> [32][32]
 handshakes_fn handshk =
   if handshk == INITIAL then [CLIENT_HELLO, SERVER_HELLO] # zero else
   if handshk == (NEGOTIATED) 
@@ -473,24 +473,25 @@ implies : Bit -> Bit -> Bit
 implies l r = if r then True else ~l
 
 // values of similarly named C macros and enum values
-INITIAL : [32]
+INITIAL : [16]
 INITIAL =  zero # 0x00 
-NEGOTIATED : [32]
+NEGOTIATED : [16]
 NEGOTIATED = zero #  0x01
-RESUME : [32]
+RESUME : [16]
 RESUME = zero # 0x01
-FULL_HANDSHAKE : [32]
+FULL_HANDSHAKE : [16]
 FULL_HANDSHAKE = zero # 0x02
-PERFECT_FORWARD_SECRECY : [32]
-PERFECT_FORWARD_SECRECY= zero # 0x04
-OCSP_STATUS : [32]
-OCSP_STATUS = zero # 0x08
-WITH_SESSION_TICKET : [32]
-WITH_SESSION_TICKET = zero # 0x20
-CLIENT_AUTH : [32]
-CLIENT_AUTH = zero # 0x10
-NO_CLIENT_CERT : [32]
-NO_CLIENT_CERT = zero # 0x40
+CLIENT_AUTH : [16]
+CLIENT_AUTH = zero # 0x04
+NO_CLIENT_CERT : [16]
+NO_CLIENT_CERT = zero # 0x08
+
+PERFECT_FORWARD_SECRECY : [16]
+PERFECT_FORWARD_SECRECY= zero # 0x10
+OCSP_STATUS : [16]
+OCSP_STATUS = zero # 0x20
+WITH_SESSION_TICKET : [16]
+WITH_SESSION_TICKET = zero # 0x40
 
 S2N_TLS13 : [8]
 S2N_TLS13 = 34
