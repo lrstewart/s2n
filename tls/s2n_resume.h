@@ -38,6 +38,7 @@
 #define ONE_SEC_IN_NANOS                1000000000
 #define ONE_MILLISEC_IN_NANOS           1000000
 #define ONE_WEEK_IN_SEC                 604800
+
 #define S2N_TLS12_TICKET_SIZE_IN_BYTES  (S2N_TICKET_KEY_NAME_LEN + S2N_TLS_GCM_IV_LEN +     \
         S2N_STATE_SIZE_IN_BYTES + S2N_TLS_GCM_TAG_LEN)
 
@@ -75,6 +76,13 @@ struct s2n_ticket_key_weight {
 struct s2n_ticket_fields {
     struct s2n_blob session_secret;
     uint32_t ticket_age_add;
+
+    /* Fields incorporated into ticket_lifetime.
+     * ticket_lifetime is a relative value calculated as the minimum of several other values.
+     * In order to avoid inconsistencies, we should not recalculate those other values.
+     */
+    uint64_t ticket_issue_time;
+    uint32_t keying_material_lifetime;
 };
 
 struct s2n_session_ticket {
@@ -83,7 +91,10 @@ struct s2n_session_ticket {
 };
 
 extern struct s2n_ticket_key *s2n_find_ticket_key(struct s2n_config *config, const uint8_t *name);
-extern int s2n_encrypt_session_ticket(struct s2n_connection *conn, struct s2n_ticket_fields *ticket_fields, struct s2n_stuffer *to);
+struct s2n_ticket_key *s2n_get_ticket_encrypt_decrypt_key(struct s2n_config *config);
+extern int s2n_encrypt_session_ticket(struct s2n_connection *conn, struct s2n_ticket_key *key,
+        struct s2n_ticket_fields *ticket_fields, struct s2n_stuffer *to);
+S2N_RESULT s2n_tls12_encrypt_session_ticket(struct s2n_connection *conn, struct s2n_stuffer *to);
 extern int s2n_decrypt_session_ticket(struct s2n_connection *conn);
 extern int s2n_encrypt_session_cache(struct s2n_connection *conn, struct s2n_stuffer *to); 
 extern int s2n_decrypt_session_cache(struct s2n_connection *conn, struct s2n_stuffer *from); 
@@ -111,6 +122,7 @@ int s2n_client_serialize_resumption_state(struct s2n_connection *conn, struct s2
  * once we release the session resumption API. */
 int s2n_config_set_initial_ticket_count(struct s2n_config *config, uint8_t num);
 int s2n_connection_add_new_tickets_to_send(struct s2n_connection *conn, uint8_t num);
+int s2n_connection_set_server_keying_material_lifetime(struct s2n_connection *conn, uint32_t lifetime_in_secs);
 
 struct s2n_session_ticket;
 typedef int (*s2n_session_ticket_fn)(struct s2n_connection *conn, struct s2n_session_ticket *ticket);

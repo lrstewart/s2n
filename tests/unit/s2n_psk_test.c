@@ -117,6 +117,49 @@ int main(int argc, char **argv)
         EXPECT_BYTEARRAY_EQUAL(psk.secret.data, TEST_VALUE_2, sizeof(TEST_VALUE_2));
     }
 
+    /* Test s2n_psk_get_keying_material_expiration */
+    {
+        /* Safety */
+        {
+            struct s2n_psk psk = { 0 };
+            uint64_t expiration_timestamp = 0;
+            EXPECT_ERROR_WITH_ERRNO(s2n_psk_get_keying_material_expiration(&psk, NULL), S2N_ERR_NULL);
+            EXPECT_ERROR_WITH_ERRNO(s2n_psk_get_keying_material_expiration(NULL, &expiration_timestamp), S2N_ERR_NULL);
+        }
+
+        /* Overflow handled */
+        {
+            struct s2n_psk psk = { 0 };
+            uint64_t expiration_timestamp = 0;
+            psk.ticket_issue_time = UINT64_MAX;
+            psk.keying_material_lifetime = 1;
+            EXPECT_ERROR_WITH_ERRNO(s2n_psk_get_keying_material_expiration(&psk, &expiration_timestamp), S2N_ERR_INTEGER_OVERFLOW);
+        }
+
+        const uint64_t one_sec_in_ns = ONE_SEC_IN_NANOS;
+        struct {
+            uint64_t issued_timestamp;
+            uint32_t lifetime_in_s;
+            uint64_t expiration_timestamp;
+            bool overflow;
+        } test_cases[] = {
+                { .issued_timestamp = 0, .lifetime_in_s = 0, .expiration_timestamp = 0 },
+                { .issued_timestamp = 0, .lifetime_in_s = 1, .expiration_timestamp = one_sec_in_ns },
+                { .issued_timestamp = 1, .lifetime_in_s = 0, .expiration_timestamp = 1 },
+                { .issued_timestamp = one_sec_in_ns, .lifetime_in_s = 1, .expiration_timestamp = ( 2 * one_sec_in_ns) },
+                { .issued_timestamp = UINT64_MAX - (UINT32_MAX * one_sec_in_ns), .lifetime_in_s = UINT32_MAX,
+                        .expiration_timestamp = UINT64_MAX },
+        };
+        for (int i = 0; i < s2n_array_len(test_cases); i++) {
+            struct s2n_psk psk = { 0 };
+            uint64_t actual_expiration_timestamp = 0;
+            psk.ticket_issue_time = test_cases[i].issued_timestamp;
+            psk.keying_material_lifetime = test_cases[i].lifetime_in_s;
+            EXPECT_OK(s2n_psk_get_keying_material_expiration(&psk, &actual_expiration_timestamp));
+            EXPECT_EQUAL(actual_expiration_timestamp, test_cases[i].expiration_timestamp);
+        }
+    }
+
     /* Test s2n_psk_clone */
     {
         const uint8_t test_bad_value[] = "wrong";

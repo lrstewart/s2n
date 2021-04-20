@@ -44,10 +44,18 @@ struct s2n_psk {
     uint64_t ticket_issue_time;
     struct s2n_blob early_secret;
     struct s2n_early_data_config early_data_config;
+
+    /* This field is only used when a new session ticket is issued
+     * from a connection established via a PSK, to track the "lifetime"
+     * of the original handshake across resumptions.
+     * See https://tools.ietf.org/rfc/rfc8446#section-4.6.1
+     */
+    uint32_t keying_material_lifetime;
 };
 S2N_RESULT s2n_psk_init(struct s2n_psk *psk, s2n_psk_type type);
 S2N_CLEANUP_RESULT s2n_psk_wipe(struct s2n_psk *psk);
 S2N_RESULT s2n_psk_clone(struct s2n_psk *new_psk, struct s2n_psk *original_psk);
+S2N_RESULT s2n_psk_get_keying_material_expiration(struct s2n_psk *psk, uint64_t *expiration_timestamp);
 
 struct s2n_psk_parameters {
     s2n_psk_type type;

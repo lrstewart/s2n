@@ -97,12 +97,26 @@ static int s2n_setup_test_resumption_secret(struct s2n_connection *conn)
     return S2N_SUCCESS;
 }
 
+static int mock_time(void *data, uint64_t *nanoseconds)
+{
+    POSIX_ENSURE_REF(data);
+    POSIX_ENSURE_REF(nanoseconds);
+    *nanoseconds = *((uint64_t*) data);
+    return S2N_SUCCESS;
+}
+
 int main(int argc, char **argv)
 {
     BEGIN_TEST();
 
+    struct s2n_cert_chain_and_key *chain_and_key;
+    EXPECT_SUCCESS(s2n_test_cert_chain_and_key_new(&chain_and_key,
+            S2N_DEFAULT_ECDSA_TEST_CERT_CHAIN, S2N_DEFAULT_ECDSA_TEST_PRIVATE_KEY));
+
     /* s2n_tls13_server_nst_write */
     {
+        const uint32_t test_lifetime = 7;
+
         /* Check session ticket message is correctly written. */
         {
             struct s2n_config *config;
@@ -112,6 +126,7 @@ int main(int argc, char **argv)
 
             EXPECT_SUCCESS(s2n_setup_test_ticket_key(config));
             EXPECT_SUCCESS(s2n_connection_set_config(conn, config));
+            EXPECT_SUCCESS(s2n_connection_set_server_keying_material_lifetime(conn, test_lifetime));
 
             conn->actual_protocol_version = S2N_TLS13;
             conn->secure.cipher_suite = &s2n_tls13_aes_256_gcm_sha384;
@@ -134,8 +149,7 @@ int main(int argc, char **argv)
 
             uint32_t ticket_lifetime = 0;
             EXPECT_SUCCESS(s2n_stuffer_read_uint32(&output, &ticket_lifetime));
-            uint32_t key_lifetime_in_secs = S2N_TICKET_DECRYPT_KEY_LIFETIME_IN_NANOS / ONE_SEC_IN_NANOS;
-            EXPECT_EQUAL(key_lifetime_in_secs, ticket_lifetime);
+            EXPECT_EQUAL(test_lifetime, ticket_lifetime);
 
             /* Skipping random data */
             EXPECT_SUCCESS(s2n_stuffer_skip_read(&output, sizeof(uint32_t)));
@@ -287,27 +301,286 @@ int main(int argc, char **argv)
         }
     }
 
+    /* s2n_generate_ticket_key_lifetime */
+    {
+        /* Safety checks */
+        {
+            struct s2n_config config = { 0 };
+            struct s2n_ticket_key key = { 0 };
+            uint32_t lifetime = 0;
+            EXPECT_ERROR_WITH_ERRNO(s2n_generate_ticket_key_lifetime(NULL, 0, &key, &lifetime), S2N_ERR_NULL);
+            EXPECT_ERROR_WITH_ERRNO(s2n_generate_ticket_key_lifetime(&config, 0, NULL, &lifetime), S2N_ERR_NULL);
+            EXPECT_ERROR_WITH_ERRNO(s2n_generate_ticket_key_lifetime(&config, 0, &key, NULL), S2N_ERR_NULL);
+        }
+
+        const uint8_t test_name[S2N_TICKET_KEY_NAME_LEN] = "key";
+        uint8_t test_key[] = "key_data";
+        const uint64_t now = 10;
+        uint64_t now_in_ns = now * ONE_SEC_IN_NANOS;
+        struct {
+            uint64_t key_intro_time;
+            uint64_t decrypt_lifetime;
+            uint64_t encrypt_lifetime;
+            uint32_t result_lifetime;
+            bool overflow_error;
+        } test_cases[] = {
+            /* All values in seconds */
+            { .key_intro_time = now, .decrypt_lifetime = 0, .encrypt_lifetime = 0, .result_lifetime = 0 },
+            { .key_intro_time = now, .decrypt_lifetime = 1, .encrypt_lifetime = 0, .result_lifetime = 1 },
+            { .key_intro_time = now, .decrypt_lifetime = 0, .encrypt_lifetime = 1, .result_lifetime = 1 },
+            { .key_intro_time = now, .decrypt_lifetime = 1, .encrypt_lifetime = 1, .result_lifetime = 2 },
+            { .key_intro_time = now, .decrypt_lifetime = 0, .encrypt_lifetime = UINT32_MAX, .result_lifetime = UINT32_MAX },
+            { .key_intro_time = now - 5, .decrypt_lifetime = 0, .encrypt_lifetime = 6, .result_lifetime = 1 },
+            { .key_intro_time = now - 5, .decrypt_lifetime = 4, .encrypt_lifetime = 4, .result_lifetime = 3 },
+            { .key_intro_time = 0, .decrypt_lifetime = UINT64_MAX, .encrypt_lifetime = 1, .overflow_error = true },
+            { .key_intro_time = 0, .decrypt_lifetime = 1, .encrypt_lifetime = UINT64_MAX, .overflow_error = true },
+            { .key_intro_time = 1, .decrypt_lifetime = UINT64_MAX, .encrypt_lifetime = 0, .overflow_error = true },
+        };
+
+        for (size_t i = 0; i < s2n_array_len(test_cases); i++) {
+            struct s2n_config *config = s2n_config_new();
+            EXPECT_NOT_NULL(config);
+            EXPECT_SUCCESS(s2n_config_set_wall_clock(config, mock_time, &now_in_ns));
+
+            EXPECT_SUCCESS(s2n_config_set_session_tickets_onoff(config, 1));
+            EXPECT_SUCCESS(s2n_config_add_ticket_crypto_key(config, test_name, sizeof(test_name),
+                    test_key, sizeof(test_key), test_cases[i].key_intro_time));
+            struct s2n_ticket_key *key = s2n_find_ticket_key(config, test_name);
+            EXPECT_NOT_NULL(key);
+
+            EXPECT_SUCCESS(s2n_config_set_ticket_encrypt_decrypt_key_lifetime(config, test_cases[i].encrypt_lifetime));
+            EXPECT_SUCCESS(s2n_config_set_ticket_decrypt_key_lifetime(config, test_cases[i].decrypt_lifetime));
+
+            uint32_t lifetime = 0;
+            if (test_cases[i].overflow_error) {
+                EXPECT_ERROR_WITH_ERRNO(s2n_generate_ticket_key_lifetime(config, now_in_ns, key, &lifetime),
+                        S2N_ERR_INTEGER_OVERFLOW);
+            } else {
+                EXPECT_OK(s2n_generate_ticket_key_lifetime(config, now_in_ns, key, &lifetime));
+                EXPECT_EQUAL(lifetime, test_cases[i].result_lifetime);
+            }
+
+            EXPECT_SUCCESS(s2n_config_free(config));
+        }
+    }
+
+    /* s2n_generate_keying_material_lifetime */
+    {
+        const uint32_t test_server_lifetime = 10;
+        const uint64_t now = 100;
+        uint64_t now_in_ns = now * ONE_SEC_IN_NANOS;
+
+        /* Safety checks */
+        {
+            struct s2n_connection conn = { 0 };
+            uint32_t lifetime = 0;
+            EXPECT_ERROR_WITH_ERRNO(s2n_generate_keying_material_lifetime(NULL, 0, &lifetime), S2N_ERR_NULL);
+            EXPECT_ERROR_WITH_ERRNO(s2n_generate_keying_material_lifetime(&conn, 0, NULL), S2N_ERR_NULL);
+        }
+
+        /* No chosen PSK: use fresh server lifetime */
+        {
+            struct s2n_config *config = s2n_config_new();
+            EXPECT_NOT_NULL(config);
+            EXPECT_SUCCESS(s2n_config_set_wall_clock(config, mock_time, &now_in_ns));
+
+            struct s2n_connection *conn = s2n_connection_new(S2N_SERVER);
+            EXPECT_NOT_NULL(conn);
+            EXPECT_SUCCESS(s2n_connection_set_config(conn, config));
+            EXPECT_SUCCESS(s2n_connection_set_server_keying_material_lifetime(conn, test_server_lifetime));
+
+            uint32_t lifetime = 0;
+            EXPECT_OK(s2n_generate_keying_material_lifetime(conn, now_in_ns, &lifetime));
+            EXPECT_EQUAL(lifetime, test_server_lifetime);
+
+            EXPECT_SUCCESS(s2n_config_free(config));
+            EXPECT_SUCCESS(s2n_connection_free(conn));
+        }
+
+        /* Chosen PSK is external: use fresh server lifetime */
+        {
+            struct s2n_config *config = s2n_config_new();
+            EXPECT_NOT_NULL(config);
+            EXPECT_SUCCESS(s2n_config_set_wall_clock(config, mock_time, &now_in_ns));
+
+            struct s2n_connection *conn = s2n_connection_new(S2N_SERVER);
+            EXPECT_NOT_NULL(conn);
+            EXPECT_SUCCESS(s2n_connection_set_config(conn, config));
+            EXPECT_SUCCESS(s2n_connection_set_server_keying_material_lifetime(conn, test_server_lifetime));
+
+            struct s2n_psk *psk = s2n_test_psk_new(conn);
+            EXPECT_NOT_NULL(psk);
+            psk->type = S2N_PSK_TYPE_EXTERNAL;
+            psk->ticket_issue_time = now_in_ns;
+            psk->keying_material_lifetime = 1;
+            conn->psk_params.chosen_psk = psk;
+
+            uint32_t lifetime = 0;
+            EXPECT_OK(s2n_generate_keying_material_lifetime(conn, now_in_ns, &lifetime));
+            EXPECT_EQUAL(lifetime, test_server_lifetime);
+
+            EXPECT_SUCCESS(s2n_config_free(config));
+            EXPECT_SUCCESS(s2n_connection_free(conn));
+        }
+
+        /* Update existing PSK material's lifetime */
+        {
+            const uint32_t consumed_lifetime = test_server_lifetime / 2;
+            const uint32_t remaining_lifetime = test_server_lifetime - consumed_lifetime;
+
+            struct s2n_config *config = s2n_config_new();
+            EXPECT_NOT_NULL(config);
+            EXPECT_SUCCESS(s2n_config_set_wall_clock(config, mock_time, &now_in_ns));
+
+            struct s2n_connection *conn = s2n_connection_new(S2N_SERVER);
+            EXPECT_NOT_NULL(conn);
+            EXPECT_SUCCESS(s2n_connection_set_config(conn, config));
+            EXPECT_SUCCESS(s2n_connection_set_server_keying_material_lifetime(conn, test_server_lifetime));
+
+            struct s2n_psk *psk = s2n_test_psk_new(conn);
+            EXPECT_NOT_NULL(psk);
+            psk->type = S2N_PSK_TYPE_RESUMPTION;
+            psk->keying_material_lifetime = test_server_lifetime;
+            psk->ticket_issue_time = (now - consumed_lifetime) * ONE_SEC_IN_NANOS;
+            conn->psk_params.chosen_psk = psk;
+
+            uint32_t lifetime = 0;
+            EXPECT_OK(s2n_generate_keying_material_lifetime(conn, now_in_ns, &lifetime));
+            EXPECT_EQUAL(lifetime, remaining_lifetime);
+
+            EXPECT_SUCCESS(s2n_config_free(config));
+            EXPECT_SUCCESS(s2n_connection_free(conn));
+        }
+
+        /* Previous PSK material had lifetime too long for current server settings.
+         * Reduce the lifetime.
+         */
+        {
+            struct s2n_config *config = s2n_config_new();
+            EXPECT_NOT_NULL(config);
+            EXPECT_SUCCESS(s2n_config_set_wall_clock(config, mock_time, &now_in_ns));
+
+            struct s2n_connection *conn = s2n_connection_new(S2N_SERVER);
+            EXPECT_NOT_NULL(conn);
+            EXPECT_SUCCESS(s2n_connection_set_config(conn, config));
+            EXPECT_SUCCESS(s2n_connection_set_server_keying_material_lifetime(conn, test_server_lifetime));
+
+            struct s2n_psk *psk = s2n_test_psk_new(conn);
+            EXPECT_NOT_NULL(psk);
+            psk->type = S2N_PSK_TYPE_RESUMPTION;
+            psk->ticket_issue_time = now_in_ns;
+            conn->psk_params.chosen_psk = psk;
+
+            uint32_t lifetime = 0;
+
+            /* Lifetime allowed by current connection */
+            psk->keying_material_lifetime = 1;
+            EXPECT_OK(s2n_generate_keying_material_lifetime(conn, now_in_ns, &lifetime));
+            EXPECT_EQUAL(lifetime, 1);
+
+            /* Lifetime exceeds max for current connection */
+            psk->keying_material_lifetime = UINT32_MAX;
+            EXPECT_OK(s2n_generate_keying_material_lifetime(conn, now_in_ns, &lifetime));
+            EXPECT_EQUAL(lifetime, test_server_lifetime);
+
+            EXPECT_SUCCESS(s2n_config_free(config));
+            EXPECT_SUCCESS(s2n_connection_free(conn));
+        }
+
+        /* Expired PSK material */
+        {
+            uint32_t lifetime = 0;
+
+            struct s2n_config *config = s2n_config_new();
+            EXPECT_NOT_NULL(config);
+            EXPECT_SUCCESS(s2n_config_set_wall_clock(config, mock_time, &now_in_ns));
+
+            struct s2n_connection *conn = s2n_connection_new(S2N_SERVER);
+            EXPECT_NOT_NULL(conn);
+            EXPECT_SUCCESS(s2n_connection_set_config(conn, config));
+            EXPECT_SUCCESS(s2n_connection_set_server_keying_material_lifetime(conn, test_server_lifetime));
+
+            struct s2n_psk *psk = s2n_test_psk_new(conn);
+            EXPECT_NOT_NULL(psk);
+            psk->type = S2N_PSK_TYPE_RESUMPTION;
+            conn->psk_params.chosen_psk = psk;
+
+            /* Expired because lifetime is zero */
+            psk->ticket_issue_time = now_in_ns;
+            psk->keying_material_lifetime = 0;
+            EXPECT_ERROR_WITH_ERRNO(s2n_generate_keying_material_lifetime(conn, now_in_ns, &lifetime),
+                    S2N_ERR_KEYING_MATERIAL_EXPIRED);
+
+            /* Expired because material too old */
+            psk->ticket_issue_time = now_in_ns - (test_server_lifetime * (uint64_t) ONE_SEC_IN_NANOS);
+            psk->keying_material_lifetime = test_server_lifetime;
+            EXPECT_ERROR_WITH_ERRNO(s2n_generate_keying_material_lifetime(conn, now_in_ns, &lifetime),
+                    S2N_ERR_KEYING_MATERIAL_EXPIRED);
+
+            EXPECT_SUCCESS(s2n_config_free(config));
+            EXPECT_SUCCESS(s2n_connection_free(conn));
+        }
+    }
+
     /* s2n_generate_ticket_lifetime */
     {
+        uint64_t now_in_ns = 100;
         uint32_t min_lifetime = 0;
-        struct s2n_connection *conn;
-        EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_SERVER));
+
+        struct s2n_config *config = s2n_config_new();
+        EXPECT_NOT_NULL(config);
+        EXPECT_SUCCESS(s2n_config_set_wall_clock(config, mock_time, &now_in_ns));
+
+        struct s2n_connection *conn = s2n_connection_new(S2N_SERVER);
+        EXPECT_NOT_NULL(conn);
+        EXPECT_SUCCESS(s2n_connection_set_config(conn, config));
+
+        struct s2n_ticket_fields ticket_fields = { 0 };
+        struct s2n_ticket_key ticket_key = { .intro_timestamp = now_in_ns };
+
+        conn->config->decrypt_key_lifetime_in_nanos = 0;
+        conn->config->encrypt_decrypt_key_lifetime_in_nanos = 0;
 
         /* Test: Decrypt key has shortest lifetime */
-        conn->config->decrypt_key_lifetime_in_nanos = ONE_HOUR_IN_NANOS;
-        conn->config->session_state_lifetime_in_nanos = TWO_HOURS_IN_NANOS;
+        {
+            conn->config->decrypt_key_lifetime_in_nanos = ONE_HOUR_IN_NANOS;
+            conn->server_keying_material_lifetime = TWO_HOURS_IN_NANOS / ONE_SEC_IN_NANOS;
+            conn->config->session_state_lifetime_in_nanos = TWO_HOURS_IN_NANOS;
 
-        EXPECT_OK(s2n_generate_ticket_lifetime(conn, &min_lifetime));
-        EXPECT_EQUAL(min_lifetime, conn->config->decrypt_key_lifetime_in_nanos / ONE_SEC_IN_NANOS);
+            EXPECT_OK(s2n_generate_ticket_lifetime(conn, &ticket_fields, &ticket_key, &min_lifetime));
+            EXPECT_EQUAL(min_lifetime, conn->config->decrypt_key_lifetime_in_nanos / ONE_SEC_IN_NANOS);
+
+            EXPECT_EQUAL(ticket_fields.ticket_issue_time, now_in_ns);
+            EXPECT_EQUAL(ticket_fields.keying_material_lifetime, conn->server_keying_material_lifetime);
+        }
 
         /* Test: Session state has shortest lifetime */
-        conn->config->decrypt_key_lifetime_in_nanos = TWO_HOURS_IN_NANOS;
-        conn->config->session_state_lifetime_in_nanos = ONE_HOUR_IN_NANOS;
+        {
+            conn->config->decrypt_key_lifetime_in_nanos = TWO_HOURS_IN_NANOS;
+            conn->server_keying_material_lifetime = TWO_HOURS_IN_NANOS / ONE_SEC_IN_NANOS;
+            conn->config->session_state_lifetime_in_nanos = ONE_HOUR_IN_NANOS;
 
-        EXPECT_OK(s2n_generate_ticket_lifetime(conn, &min_lifetime));
-        EXPECT_EQUAL(min_lifetime, conn->config->session_state_lifetime_in_nanos / ONE_SEC_IN_NANOS);        
+            EXPECT_OK(s2n_generate_ticket_lifetime(conn, &ticket_fields, &ticket_key, &min_lifetime));
+            EXPECT_EQUAL(min_lifetime, conn->config->session_state_lifetime_in_nanos / ONE_SEC_IN_NANOS);
 
-        /** Test: Both session state and decrypt key have longer lifetimes than a week
+            EXPECT_EQUAL(ticket_fields.ticket_issue_time, now_in_ns);
+            EXPECT_EQUAL(ticket_fields.keying_material_lifetime, conn->server_keying_material_lifetime);
+        }
+
+        /* Test: Keying material has shortest lifetime */
+        {
+            conn->config->decrypt_key_lifetime_in_nanos = TWO_HOURS_IN_NANOS;
+            conn->server_keying_material_lifetime = ONE_HOUR_IN_NANOS / ONE_SEC_IN_NANOS;
+            conn->config->session_state_lifetime_in_nanos = TWO_HOURS_IN_NANOS;
+
+            EXPECT_OK(s2n_generate_ticket_lifetime(conn, &ticket_fields, &ticket_key, &min_lifetime));
+            EXPECT_EQUAL(min_lifetime, conn->server_keying_material_lifetime);
+
+            EXPECT_EQUAL(ticket_fields.ticket_issue_time, now_in_ns);
+            EXPECT_EQUAL(ticket_fields.keying_material_lifetime, conn->server_keying_material_lifetime);
+        }
+
+        /** Test: All lifetimes longer than a week
          *= https://tools.ietf.org/rfc/rfc8446#section-4.6.1
          *= type=test
          *# Servers MUST NOT use any value greater than
@@ -316,16 +589,23 @@ int main(int argc, char **argv)
         /* Note: We turn these integer literals into uint64_t values because otherwise
          * they will be interpreted as uint32_t values and an faulty integer overflow error
          * will be thrown. */
-        uint64_t one_week_in_sec = ONE_WEEK_IN_SEC;
-        uint64_t one_sec_in_nanos = ONE_SEC_IN_NANOS;
-        uint64_t one_week_in_nanos = one_week_in_sec * one_sec_in_nanos;
-        conn->config->decrypt_key_lifetime_in_nanos = one_week_in_nanos + 1;
-        conn->config->session_state_lifetime_in_nanos = one_week_in_nanos + 1;
+        {
+            uint64_t one_week_in_sec = ONE_WEEK_IN_SEC;
+            uint64_t one_sec_in_nanos = ONE_SEC_IN_NANOS;
+            uint64_t one_week_in_nanos = one_week_in_sec * one_sec_in_nanos;
+            conn->config->decrypt_key_lifetime_in_nanos = one_week_in_nanos + 1;
+            conn->server_keying_material_lifetime = ONE_WEEK_IN_SEC + 1;
+            conn->config->session_state_lifetime_in_nanos = one_week_in_nanos + 1;
 
-        EXPECT_OK(s2n_generate_ticket_lifetime(conn, &min_lifetime));
-        EXPECT_EQUAL(min_lifetime, ONE_WEEK_IN_SEC);
+            EXPECT_OK(s2n_generate_ticket_lifetime(conn, &ticket_fields, &ticket_key, &min_lifetime));
+            EXPECT_EQUAL(min_lifetime, ONE_WEEK_IN_SEC);
+
+            EXPECT_EQUAL(ticket_fields.ticket_issue_time, now_in_ns);
+            EXPECT_EQUAL(ticket_fields.keying_material_lifetime, conn->server_keying_material_lifetime);
+        }
 
         EXPECT_SUCCESS(s2n_connection_free(conn));
+        EXPECT_SUCCESS(s2n_config_free(config));
     }
 
     /* s2n_generate_ticket_nonce */
@@ -886,6 +1166,54 @@ int main(int argc, char **argv)
             EXPECT_SUCCESS(s2n_config_free(config));
         }
 
+        /* Test keying material expiration enforced
+         *
+         *= https://tools.ietf.org/rfc/rfc8446#section-4.6.1:
+         *= type=test
+         *# Note that in principle it is possible to continue issuing new tickets
+         *# which indefinitely extend the lifetime of the keying material
+         *# originally derived from an initial non-PSK handshake (which was most
+         *# likely tied to the peer's certificate). It is RECOMMENDED that
+         *# implementations place limits on the total lifetime of such keying
+         *# material; these limits should take into account the lifetime of the
+         *# peer's certificate, the likelihood of intervening revocation, and the
+         *# time since the peer's online CertificateVerify signature.
+         */
+        {
+            struct s2n_config *config = s2n_config_new();
+            EXPECT_NOT_NULL(config);
+            EXPECT_SUCCESS(s2n_setup_test_ticket_key(config));
+
+            struct s2n_connection *conn = s2n_connection_new(S2N_SERVER);
+            EXPECT_NOT_NULL(conn);
+            EXPECT_SUCCESS(s2n_connection_set_config(conn, config));
+            conn->actual_protocol_version = S2N_TLS13;
+            conn->secure.cipher_suite = &s2n_tls13_aes_128_gcm_sha256;
+            conn->tickets_to_send = 1;
+
+            conn->psk_params.chosen_psk = s2n_test_psk_new(conn);
+            EXPECT_NOT_NULL(conn->psk_params.chosen_psk);
+            conn->psk_params.chosen_psk->type = S2N_PSK_TYPE_RESUMPTION;
+
+            DEFER_CLEANUP(struct s2n_stuffer stuffer, s2n_stuffer_free);
+            EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&stuffer, 0));
+            EXPECT_SUCCESS(s2n_connection_set_io_stuffers(&stuffer, &stuffer, conn));
+
+            /* Keying material already expired */
+            conn->psk_params.chosen_psk->ticket_issue_time = 0;
+            conn->psk_params.chosen_psk->keying_material_lifetime = 0;
+
+            /* No session ticket written */
+            s2n_blocked_status blocked = 0;
+            EXPECT_NOT_EQUAL(conn->tickets_to_send, conn->tickets_sent);
+            EXPECT_OK(s2n_tls13_server_nst_send(conn, &blocked));
+            EXPECT_EQUAL(s2n_stuffer_data_available(&stuffer), 0);
+            EXPECT_EQUAL(conn->tickets_to_send, conn->tickets_sent);
+
+            EXPECT_SUCCESS(s2n_connection_free(conn));
+            EXPECT_SUCCESS(s2n_config_free(config));
+        }
+
         /* Test S2N_TLS13_NEW_SESSION_TICKET_SIZE(conn) */
         {
             struct s2n_config *config = s2n_config_new();
@@ -977,9 +1305,6 @@ int main(int argc, char **argv)
         EXPECT_NOT_NULL(server_conn = s2n_connection_new(S2N_SERVER));
 
         /* Setup config */
-        struct s2n_cert_chain_and_key *chain_and_key;
-        EXPECT_SUCCESS(s2n_test_cert_chain_and_key_new(&chain_and_key,
-                S2N_DEFAULT_ECDSA_TEST_CERT_CHAIN, S2N_DEFAULT_ECDSA_TEST_PRIVATE_KEY));
         struct s2n_config *config;
         EXPECT_NOT_NULL(config = s2n_config_new());
         EXPECT_SUCCESS(s2n_config_set_cipher_preferences(config, "default_tls13"));
@@ -1025,9 +1350,9 @@ int main(int argc, char **argv)
         EXPECT_SUCCESS(s2n_stuffer_free(&server_to_client));
         EXPECT_SUCCESS(s2n_connection_free(server_conn));
         EXPECT_SUCCESS(s2n_connection_free(client_conn));
-        EXPECT_SUCCESS(s2n_cert_chain_and_key_free(chain_and_key));
         EXPECT_SUCCESS(s2n_config_free(config));
     }
 
+    EXPECT_SUCCESS(s2n_cert_chain_and_key_free(chain_and_key));
     END_TEST();
 }

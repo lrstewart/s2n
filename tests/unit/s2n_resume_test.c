@@ -28,6 +28,7 @@
 #define TICKET_AGE_ADD 16843009
 #define SECRET_LEN 0x02
 #define SECRET 0x03, 0x04
+#define KEYING_MATERIAL_LIFETIME 0x12
 #define EMPTY_EARLY_DATA_SIZE 0x00, 0x00, 0x00, 0x00
 #define CLIENT_TICKET 0x10, 0x10
 
@@ -142,7 +143,12 @@ int main(int argc, char **argv)
             DEFER_CLEANUP(struct s2n_stuffer output = { 0 }, s2n_stuffer_free);
             EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&output, 0));
 
-            struct s2n_ticket_fields ticket_fields = { .ticket_age_add = 1, .session_secret = test_session_secret };
+            struct s2n_ticket_fields ticket_fields = {
+                    .ticket_age_add = 1,
+                    .session_secret = test_session_secret,
+                    .ticket_issue_time = ticket_issue_time,
+                    .keying_material_lifetime = KEYING_MATERIAL_LIFETIME,
+            };
 
             EXPECT_OK(s2n_tls13_serialize_resumption_state(conn, &ticket_fields, &output));
             tls13_state_size_without_early_data = s2n_stuffer_data_available(&output);
@@ -159,8 +165,9 @@ int main(int argc, char **argv)
             EXPECT_SUCCESS(s2n_stuffer_read_bytes(&output, iana_value, S2N_TLS_CIPHER_SUITE_LEN));
             EXPECT_BYTEARRAY_EQUAL(conn->secure.cipher_suite->iana_value, &iana_value, S2N_TLS_CIPHER_SUITE_LEN);
 
-            /* Current time */
-            EXPECT_SUCCESS(s2n_stuffer_skip_read(&output, sizeof(uint64_t)));
+            uint64_t actual_ticket_issue_time = 0;
+            EXPECT_SUCCESS(s2n_stuffer_read_uint64(&output, &actual_ticket_issue_time));
+            EXPECT_EQUAL(actual_ticket_issue_time, ticket_issue_time);
 
             uint32_t ticket_age_add = 0;
             EXPECT_SUCCESS(s2n_stuffer_read_uint32(&output, &ticket_age_add));
@@ -174,6 +181,10 @@ int main(int argc, char **argv)
             EXPECT_SUCCESS(s2n_stuffer_read_bytes(&output, session_secret, secret_len));
             EXPECT_BYTEARRAY_EQUAL(test_session_secret.data, session_secret, secret_len);
             
+            uint32_t actual_keying_material_lifetime = 0;
+            EXPECT_SUCCESS(s2n_stuffer_read_uint32(&output, &actual_keying_material_lifetime));
+            EXPECT_EQUAL(actual_keying_material_lifetime, KEYING_MATERIAL_LIFETIME);
+
             uint32_t max_early_data_size = 1;
             EXPECT_SUCCESS(s2n_stuffer_read_uint32(&output, &max_early_data_size));
             EXPECT_EQUAL(max_early_data_size, 0);
@@ -505,7 +516,12 @@ int main(int argc, char **argv)
                 DEFER_CLEANUP(struct s2n_stuffer stuffer = { 0 }, s2n_stuffer_free);
                 EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&stuffer, 0));
 
-                struct s2n_ticket_fields ticket_fields = { .ticket_age_add = TICKET_AGE_ADD, .session_secret = test_session_secret };
+                struct s2n_ticket_fields ticket_fields = {
+                        .ticket_age_add = TICKET_AGE_ADD,
+                        .session_secret = test_session_secret,
+                        .ticket_issue_time = ticket_issue_time,
+                        .keying_material_lifetime = UINT16_MAX,
+                };
 
                 /* Initialize client ticket */
                 uint8_t client_ticket[] = { CLIENT_TICKET };
@@ -527,7 +543,6 @@ int main(int argc, char **argv)
                 EXPECT_BYTEARRAY_EQUAL(psk->secret.data, test_session_secret.data, test_session_secret.size);
 
                 EXPECT_EQUAL(psk->hmac_alg, conn->secure.cipher_suite->prf_alg);
-
                 EXPECT_EQUAL(psk->ticket_age_add, TICKET_AGE_ADD);
                 EXPECT_EQUAL(psk->ticket_issue_time, ticket_issue_time);
 
@@ -681,7 +696,7 @@ int main(int argc, char **argv)
             EXPECT_SUCCESS(s2n_blob_init(&blob, data, sizeof(data)));
             EXPECT_SUCCESS(s2n_stuffer_init(&output, &blob));
 
-            EXPECT_SUCCESS(s2n_encrypt_session_ticket(conn, NULL, &output));
+            EXPECT_OK(s2n_tls12_encrypt_session_ticket(conn, &output));
 
             /* Wiping the master secret to prove that the decryption function actually writes the master secret */
             memset(conn->secure.master_secret, 0, test_master_secret.size);
@@ -719,12 +734,18 @@ int main(int argc, char **argv)
 
             DEFER_CLEANUP(struct s2n_stuffer output = { 0 }, s2n_stuffer_free);
             EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&output, 0));
-            struct s2n_ticket_fields ticket_fields = { .ticket_age_add = 1, .session_secret = test_session_secret };
+            struct s2n_ticket_fields ticket_fields = {
+                    .ticket_age_add = 1,
+                    .session_secret = test_session_secret,
+                    .ticket_issue_time = current_time,
+                    .keying_material_lifetime = UINT16_MAX,
+            };
 
             /* This secret is smaller than the maximum secret length */
             EXPECT_TRUE(ticket_fields.session_secret.size < S2N_TLS_SECRET_LEN);
 
-            EXPECT_SUCCESS(s2n_encrypt_session_ticket(conn, &ticket_fields, &output));
+            struct s2n_ticket_key *key = s2n_get_ticket_encrypt_decrypt_key(conn->config);
+            EXPECT_SUCCESS(s2n_encrypt_session_ticket(conn, key, &ticket_fields, &output));
             conn->client_ticket_to_decrypt = output;
             EXPECT_SUCCESS(s2n_decrypt_session_ticket(conn));
 
@@ -761,12 +782,18 @@ int main(int argc, char **argv)
 
             DEFER_CLEANUP(struct s2n_stuffer output = { 0 }, s2n_stuffer_free);
             EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&output, 0));
-            struct s2n_ticket_fields ticket_fields = { .ticket_age_add = 1, .session_secret = test_master_secret };
+            struct s2n_ticket_fields ticket_fields = {
+                .ticket_age_add = 1,
+                .session_secret = test_master_secret,
+                .ticket_issue_time = current_time,
+                .keying_material_lifetime = UINT16_MAX,
+            };
 
             /* This secret is equal to the maximum secret length */
             EXPECT_EQUAL(ticket_fields.session_secret.size, S2N_TLS_SECRET_LEN);
 
-            EXPECT_SUCCESS(s2n_encrypt_session_ticket(conn, &ticket_fields, &output));
+            struct s2n_ticket_key *key = s2n_get_ticket_encrypt_decrypt_key(conn->config);
+            EXPECT_SUCCESS(s2n_encrypt_session_ticket(conn, key, &ticket_fields, &output));
             conn->client_ticket_to_decrypt = output;
             EXPECT_SUCCESS(s2n_decrypt_session_ticket(conn));
 
@@ -807,9 +834,15 @@ int main(int argc, char **argv)
 
             DEFER_CLEANUP(struct s2n_stuffer output = { 0 }, s2n_stuffer_free);
             EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&output, 0));
-            struct s2n_ticket_fields ticket_fields = { .ticket_age_add = 1, .session_secret = test_master_secret };
+            struct s2n_ticket_fields ticket_fields = {
+                .ticket_age_add = 1,
+                .session_secret = test_master_secret,
+                .ticket_issue_time = current_time,
+                .keying_material_lifetime = UINT16_MAX,
+            };
 
-            EXPECT_SUCCESS(s2n_encrypt_session_ticket(conn, &ticket_fields, &output));
+            struct s2n_ticket_key *key = s2n_get_ticket_encrypt_decrypt_key(conn->config);
+            EXPECT_SUCCESS(s2n_encrypt_session_ticket(conn, key, &ticket_fields, &output));
             conn->client_ticket_to_decrypt = output;
             EXPECT_SUCCESS(s2n_decrypt_session_ticket(conn));
 
@@ -871,6 +904,18 @@ int main(int argc, char **argv)
 
             EXPECT_FAILURE_WITH_ERRNO(s2n_connection_add_new_tickets_to_send(conn, new_num_tickets), S2N_ERR_INTEGER_OVERFLOW);
             
+            EXPECT_SUCCESS(s2n_connection_free(conn));
+        }
+
+        /* Keying material is expired */
+        {
+            struct s2n_connection *conn = s2n_connection_new(S2N_CLIENT);
+            EXPECT_NOT_NULL(conn);
+            conn->psk_params.chosen_psk = s2n_test_psk_new(conn);
+            conn->psk_params.chosen_psk->type = S2N_PSK_TYPE_RESUMPTION;
+
+            EXPECT_FAILURE_WITH_ERRNO(s2n_connection_add_new_tickets_to_send(conn, 1), S2N_ERR_KEYING_MATERIAL_EXPIRED);
+
             EXPECT_SUCCESS(s2n_connection_free(conn));
         }
     }

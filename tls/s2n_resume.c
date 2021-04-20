@@ -72,19 +72,18 @@ static S2N_RESULT s2n_tls13_serialize_resumption_state(struct s2n_connection *co
     RESULT_ENSURE_REF(ticket_fields);
     RESULT_ENSURE_REF(out);
 
-    uint64_t current_time = 0;
-
-    /* Get the time */
-    RESULT_GUARD_POSIX(conn->config->wall_clock(conn->config->sys_clock_ctx, &current_time));
-
     RESULT_GUARD_POSIX(s2n_stuffer_write_uint8(out, S2N_TLS13_SERIALIZED_FORMAT_VERSION));
     RESULT_GUARD_POSIX(s2n_stuffer_write_uint8(out, conn->actual_protocol_version));
     RESULT_GUARD_POSIX(s2n_stuffer_write_bytes(out, conn->secure.cipher_suite->iana_value, S2N_TLS_CIPHER_SUITE_LEN));
-    RESULT_GUARD_POSIX(s2n_stuffer_write_uint64(out, current_time));
+    RESULT_GUARD_POSIX(s2n_stuffer_write_uint64(out, ticket_fields->ticket_issue_time));
     RESULT_GUARD_POSIX(s2n_stuffer_write_uint32(out, ticket_fields->ticket_age_add));
     RESULT_ENSURE_LTE(ticket_fields->session_secret.size, UINT8_MAX);
     RESULT_GUARD_POSIX(s2n_stuffer_write_uint8(out, ticket_fields->session_secret.size));
     RESULT_GUARD_POSIX(s2n_stuffer_write_bytes(out, ticket_fields->session_secret.data, ticket_fields->session_secret.size));
+
+    if (conn->mode == S2N_SERVER) {
+        RESULT_GUARD_POSIX(s2n_stuffer_write_uint32(out, ticket_fields->keying_material_lifetime));
+    }
 
     uint32_t server_max_early_data = 0;
     RESULT_GUARD(s2n_early_data_get_server_max_size(conn, &server_max_early_data));
@@ -232,9 +231,15 @@ static S2N_RESULT s2n_tls13_deserialize_session_state(struct s2n_connection *con
     RESULT_ENSURE_REF(secret_data);
     RESULT_GUARD_POSIX(s2n_psk_set_secret(&psk, secret_data, secret_len));
 
+    if (conn->mode == S2N_SERVER) {
+        uint64_t keying_material_expiration = 0;
+        RESULT_GUARD_POSIX(s2n_stuffer_read_uint32(from, &psk.keying_material_lifetime));
+        RESULT_GUARD(s2n_psk_get_keying_material_expiration(&psk, &keying_material_expiration));
+        RESULT_ENSURE(current_time < keying_material_expiration, S2N_ERR_KEYING_MATERIAL_EXPIRED);
+    }
+
     uint32_t max_early_data_size = 0;
     RESULT_GUARD_POSIX(s2n_stuffer_read_uint32(from, &max_early_data_size));
-
     if (max_early_data_size > 0) {
         RESULT_GUARD_POSIX(s2n_psk_configure_early_data(&psk, max_early_data_size,
                 iana_id[0], iana_id[1]));
@@ -618,9 +623,17 @@ struct s2n_ticket_key *s2n_find_ticket_key(struct s2n_config *config, const uint
     return NULL;
 }
 
-int s2n_encrypt_session_ticket(struct s2n_connection *conn, struct s2n_ticket_fields *ticket_fields, struct s2n_stuffer *to)
+S2N_RESULT s2n_tls12_encrypt_session_ticket(struct s2n_connection *conn, struct s2n_stuffer *to)
 {
-    struct s2n_ticket_key *key;
+    struct s2n_ticket_fields empty_tls13_ticket_fields = { 0 };
+    RESULT_GUARD_POSIX(s2n_encrypt_session_ticket(conn, s2n_get_ticket_encrypt_decrypt_key(conn->config),
+            &empty_tls13_ticket_fields, to));
+    return S2N_RESULT_OK;
+}
+
+int s2n_encrypt_session_ticket(struct s2n_connection *conn, struct s2n_ticket_key *key,
+        struct s2n_ticket_fields *ticket_fields, struct s2n_stuffer *to)
+{
     struct s2n_session_key aes_ticket_key = {0};
     struct s2n_blob aes_key_blob = {0};
 
@@ -633,10 +646,8 @@ int s2n_encrypt_session_ticket(struct s2n_connection *conn, struct s2n_ticket_fi
     POSIX_GUARD(s2n_blob_init(&aad_blob, aad_data, sizeof(aad_data)));
     struct s2n_stuffer aad = {0};
 
-    key = s2n_get_ticket_encrypt_decrypt_key(conn->config);
-
     /* No keys loaded by the user or the keys are either in decrypt-only or expired state */
-    S2N_ERROR_IF(!key, S2N_ERR_NO_TICKET_ENCRYPT_DECRYPT_KEY);
+    POSIX_ENSURE(key, S2N_ERR_NO_TICKET_ENCRYPT_DECRYPT_KEY);
 
     POSIX_GUARD(s2n_stuffer_write_bytes(to, key->key_name, S2N_TICKET_KEY_NAME_LEN));
 
@@ -743,7 +754,8 @@ int s2n_decrypt_session_ticket(struct s2n_connection *conn)
 
 int s2n_encrypt_session_cache(struct s2n_connection *conn, struct s2n_stuffer *to)
 {
-    return s2n_encrypt_session_ticket(conn, NULL, to);
+    POSIX_GUARD_RESULT(s2n_tls12_encrypt_session_ticket(conn, to));
+    return S2N_SUCCESS;
 }
 
 int s2n_decrypt_session_cache(struct s2n_connection *conn, struct s2n_stuffer *from)
@@ -860,13 +872,29 @@ int s2n_config_set_initial_ticket_count(struct s2n_config *config, uint8_t num)
     return S2N_SUCCESS;
 }
 
-int s2n_connection_add_new_tickets_to_send(struct s2n_connection *conn, uint8_t num) {
+int s2n_connection_add_new_tickets_to_send(struct s2n_connection *conn, uint8_t num)
+{
     POSIX_ENSURE_REF(conn);
+
+    struct s2n_psk *chosen_psk = conn->psk_params.chosen_psk;
+    if (chosen_psk) {
+        uint64_t current_time = 0, keying_material_expiration_time = 0;
+        POSIX_GUARD(conn->config->wall_clock(conn->config->sys_clock_ctx, &current_time));
+        POSIX_GUARD_RESULT(s2n_psk_get_keying_material_expiration(chosen_psk, &keying_material_expiration_time));
+        POSIX_ENSURE(current_time < keying_material_expiration_time, S2N_ERR_KEYING_MATERIAL_EXPIRED);
+    }
 
     uint32_t out = conn->tickets_to_send + num;
     POSIX_ENSURE(out <= UINT16_MAX, S2N_ERR_INTEGER_OVERFLOW);
     conn->tickets_to_send = out;
 
+    return S2N_SUCCESS;
+}
+
+int s2n_connection_set_server_keying_material_lifetime(struct s2n_connection *conn, uint32_t lifetime_in_secs)
+{
+    POSIX_ENSURE_REF(conn);
+    conn->server_keying_material_lifetime = lifetime_in_secs;
     return S2N_SUCCESS;
 }
 

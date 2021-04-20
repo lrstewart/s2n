@@ -46,7 +46,7 @@
  */
 #define S2N_TLS13_VARIABLE_SESSION_STATE_SIZE(conn) ( ((uint8_t) strlen(conn->application_protocol)) + conn->server_early_data_context.size )
 
-#define S2N_TLS13_NEW_SESSION_TICKET_SIZE(conn)     ( 143 + S2N_TLS13_VARIABLE_SESSION_STATE_SIZE(conn) )
+#define S2N_TLS13_NEW_SESSION_TICKET_SIZE(conn)     ( 147 + S2N_TLS13_VARIABLE_SESSION_STATE_SIZE(conn) )
 #define S2N_TLS13_CLIENT_SESSION_TICKET_SIZE(conn)  ( 75 + conn->client_ticket.size + S2N_TLS13_VARIABLE_SESSION_STATE_SIZE(conn) )
 
 int s2n_server_nst_recv(struct s2n_connection *conn) {
@@ -105,7 +105,7 @@ int s2n_server_nst_send(struct s2n_connection *conn)
     POSIX_GUARD(s2n_stuffer_write_uint32(&conn->handshake.io, lifetime_hint_in_secs));
     POSIX_GUARD(s2n_stuffer_write_uint16(&conn->handshake.io, session_ticket_len));
 
-    POSIX_GUARD(s2n_encrypt_session_ticket(conn, NULL, &to));
+    POSIX_GUARD_RESULT(s2n_tls12_encrypt_session_ticket(conn, &to));
     POSIX_GUARD(s2n_stuffer_write(&conn->handshake.io, &to.blob));
 
     return 0;
@@ -124,8 +124,15 @@ S2N_RESULT s2n_tls13_server_nst_send(struct s2n_connection *conn, s2n_blocked_st
     DEFER_CLEANUP(struct s2n_stuffer nst_stuffer = { 0 }, s2n_stuffer_free);
     RESULT_GUARD_POSIX(s2n_stuffer_growable_alloc(&nst_stuffer, S2N_TLS13_NEW_SESSION_TICKET_SIZE(conn)));
 
-    while (conn->tickets_to_send - conn->tickets_sent > 0) {
-        RESULT_GUARD(s2n_tls13_server_nst_write(conn, &nst_stuffer));
+    while (conn->tickets_to_send > conn->tickets_sent) {
+        s2n_result r = s2n_tls13_server_nst_write(conn, &nst_stuffer);
+        if (s2n_result_is_error(r) && s2n_errno == S2N_ERR_KEYING_MATERIAL_EXPIRED) {
+            /* Too much time has passed since the original, full, authenticated handshake.
+             * Don't send any more tickets.
+             * See https://tools.ietf.org/rfc/rfc8446#section-4.6.1 */
+            conn->tickets_to_send = conn->tickets_sent;
+            return S2N_RESULT_OK;
+        }
 
         struct s2n_blob nst_blob = { 0 };
         uint16_t nst_size = s2n_stuffer_data_available(&nst_stuffer);
@@ -141,26 +148,105 @@ S2N_RESULT s2n_tls13_server_nst_send(struct s2n_connection *conn, s2n_blocked_st
     return S2N_RESULT_OK;
 }
 
+static S2N_RESULT s2n_generate_ticket_key_lifetime(struct s2n_config *config, uint64_t ticket_issue_timestamp,
+        struct s2n_ticket_key *ticket_key, uint32_t *ticket_key_lifetime_in_secs)
+{
+    RESULT_ENSURE_REF(config);
+    RESULT_ENSURE_REF(ticket_key);
+    RESULT_ENSURE_REF(ticket_key_lifetime_in_secs);
+
+    RESULT_ENSURE_NO_OVERFLOW(config->decrypt_key_lifetime_in_nanos, config->encrypt_decrypt_key_lifetime_in_nanos, UINT64_MAX);
+    uint64_t key_lifetime = config->decrypt_key_lifetime_in_nanos + config->encrypt_decrypt_key_lifetime_in_nanos;
+    uint64_t key_intro_timestamp = ticket_key->intro_timestamp;
+
+    RESULT_ENSURE_NO_OVERFLOW(key_intro_timestamp, key_lifetime, UINT64_MAX);
+    uint64_t ticket_key_expiration_timestamp = key_intro_timestamp + key_lifetime;
+    uint64_t actual_ticket_key_lifetime = (ticket_key_expiration_timestamp - ticket_issue_timestamp) / ONE_SEC_IN_NANOS;
+
+    RESULT_ENSURE(actual_ticket_key_lifetime <= UINT32_MAX, S2N_ERR_INTEGER_OVERFLOW);
+    *ticket_key_lifetime_in_secs = actual_ticket_key_lifetime;
+    return S2N_RESULT_OK;
+}
+
+/**
+ *= https://tools.ietf.org/rfc/rfc8446#section-4.6.1:
+ *# Note that in principle it is possible to continue issuing new tickets
+ *# which indefinitely extend the lifetime of the keying material
+ *# originally derived from an initial non-PSK handshake (which was most
+ *# likely tied to the peer's certificate). It is RECOMMENDED that
+ *# implementations place limits on the total lifetime of such keying
+ *# material; these limits should take into account the lifetime of the
+ *# peer's certificate, the likelihood of intervening revocation, and the
+ *# time since the peer's online CertificateVerify signature.
+ */
+static S2N_RESULT s2n_generate_keying_material_lifetime(struct s2n_connection *conn, uint64_t ticket_issue_timestamp,
+        uint32_t *keying_material_lifetime_in_secs)
+{
+    RESULT_ENSURE_REF(conn);
+    RESULT_ENSURE_REF(keying_material_lifetime_in_secs);
+
+    struct s2n_psk *chosen_psk = conn->psk_params.chosen_psk;
+    uint64_t max_keying_material_lifetime = conn->server_keying_material_lifetime;
+    uint64_t actual_keying_material_lifetime = max_keying_material_lifetime;
+
+    if (chosen_psk && chosen_psk->type == S2N_PSK_TYPE_RESUMPTION) {
+        uint64_t keying_material_expiration_timestamp = 0;
+        RESULT_GUARD(s2n_psk_get_keying_material_expiration(chosen_psk, &keying_material_expiration_timestamp));
+        RESULT_ENSURE(ticket_issue_timestamp < keying_material_expiration_timestamp, S2N_ERR_KEYING_MATERIAL_EXPIRED);
+
+        actual_keying_material_lifetime = (keying_material_expiration_timestamp - ticket_issue_timestamp) / ONE_SEC_IN_NANOS;
+        RESULT_ENSURE(actual_keying_material_lifetime <= UINT32_MAX, S2N_ERR_INTEGER_OVERFLOW);
+    }
+
+    *keying_material_lifetime_in_secs = MIN(actual_keying_material_lifetime, max_keying_material_lifetime);
+    return S2N_RESULT_OK;
+}
+
 /** 
  *= https://tools.ietf.org/rfc/rfc8446#section-4.6.1
  *# Indicates the lifetime in seconds as a 32-bit
  *# unsigned integer in network byte order from the time of ticket
  *# issuance. 
  **/
-static S2N_RESULT s2n_generate_ticket_lifetime(struct s2n_connection *conn, uint32_t *ticket_lifetime) 
+static S2N_RESULT s2n_generate_ticket_lifetime(struct s2n_connection *conn, struct s2n_ticket_fields *ticket_fields,
+        struct s2n_ticket_key *key, uint32_t *ticket_lifetime)
 {
     RESULT_ENSURE_REF(conn);
     RESULT_ENSURE_MUT(ticket_lifetime);
 
-    uint32_t key_lifetime_in_secs = conn->config->decrypt_key_lifetime_in_nanos / ONE_SEC_IN_NANOS;
+    /* Set ticket issue timestamp to use as the base for all lifetimes */
+    uint64_t ticket_issue_timestamp = 0;
+    RESULT_GUARD_POSIX(conn->config->wall_clock(conn->config->sys_clock_ctx, &ticket_issue_timestamp));
+
+    /* Calculate base session lifetime */
     uint32_t session_lifetime_in_secs = conn->config->session_state_lifetime_in_nanos / ONE_SEC_IN_NANOS;
-    uint32_t key_and_session_min_lifetime = MIN(key_lifetime_in_secs, session_lifetime_in_secs);
+
+    /* Calculate remaining lifetime of original keying material */
+    uint32_t keying_material_lifetime_in_secs = 0;
+    RESULT_GUARD(s2n_generate_keying_material_lifetime(conn, ticket_issue_timestamp, &keying_material_lifetime_in_secs));
+
+    /* Calculate remaining lifetime of current ticket encryption key */
+    uint32_t ticket_key_lifetime_in_secs = 0;
+    RESULT_GUARD(s2n_generate_ticket_key_lifetime(conn->config, ticket_issue_timestamp, key, &ticket_key_lifetime_in_secs));
+
+    /* The actual ticket lifetime is the minimum of all component lifetimes */
+    uint32_t min_lifetime_in_secs = MIN(session_lifetime_in_secs,
+                                    MIN(ticket_key_lifetime_in_secs,
+                                        keying_material_lifetime_in_secs));
+
     /** 
      *= https://tools.ietf.org/rfc/rfc8446#section-4.6.1
      *# Servers MUST NOT use any value greater than
      *# 604800 seconds (7 days).
      **/
-    *ticket_lifetime = MIN(key_and_session_min_lifetime, ONE_WEEK_IN_SEC);
+    *ticket_lifetime = MIN(min_lifetime_in_secs, ONE_WEEK_IN_SEC);
+
+    /*
+     * We need to save some of the values that contributed to the lifetime calculations.
+     * Re-calculating them later could lead to inconsistencies.
+     */
+    ticket_fields->keying_material_lifetime = keying_material_lifetime_in_secs;
+    ticket_fields->ticket_issue_time = ticket_issue_timestamp;
 
     return S2N_RESULT_OK;
 }
@@ -227,6 +313,7 @@ S2N_RESULT s2n_tls13_server_nst_write(struct s2n_connection *conn, struct s2n_st
 {
     RESULT_ENSURE_REF(conn);
     RESULT_ENSURE_REF(output);
+    struct s2n_ticket_fields ticket_fields = { 0 };
 
     /* Write message type because session resumption in TLS13 is a post-handshake message */
     RESULT_GUARD_POSIX(s2n_stuffer_write_uint8(output, TLS_SERVER_NEW_SESSION_TICKET));
@@ -234,12 +321,15 @@ S2N_RESULT s2n_tls13_server_nst_write(struct s2n_connection *conn, struct s2n_st
     struct s2n_stuffer_reservation message_size = { 0 };
     RESULT_GUARD_POSIX(s2n_stuffer_reserve_uint24(output, &message_size));
 
+    RESULT_ENSURE_REF(conn->config);
+    struct s2n_ticket_key *encryption_key = s2n_get_ticket_encrypt_decrypt_key(conn->config);
+    RESULT_ENSURE(encryption_key, S2N_ERR_NO_TICKET_ENCRYPT_DECRYPT_KEY);
+
     uint32_t ticket_lifetime_in_secs = 0;
-    RESULT_GUARD(s2n_generate_ticket_lifetime(conn, &ticket_lifetime_in_secs));
+    RESULT_GUARD(s2n_generate_ticket_lifetime(conn, &ticket_fields, encryption_key, &ticket_lifetime_in_secs));
     RESULT_GUARD_POSIX(s2n_stuffer_write_uint32(output, ticket_lifetime_in_secs));
 
     /* Get random data to use as ticket_age_add value */
-    struct s2n_ticket_fields ticket_fields = { 0 };
     uint8_t data[sizeof(uint32_t)] = { 0 };
     struct s2n_blob random_data = { 0 };
     RESULT_GUARD_POSIX(s2n_blob_init(&random_data, data, sizeof(data)));
@@ -267,7 +357,7 @@ S2N_RESULT s2n_tls13_server_nst_write(struct s2n_connection *conn, struct s2n_st
     /* Write ticket */
     struct s2n_stuffer_reservation ticket_size = { 0 };
     RESULT_GUARD_POSIX(s2n_stuffer_reserve_uint16(output, &ticket_size));
-    RESULT_GUARD_POSIX(s2n_encrypt_session_ticket(conn, &ticket_fields, output));
+    RESULT_GUARD_POSIX(s2n_encrypt_session_ticket(conn, encryption_key, &ticket_fields, output));
     RESULT_GUARD_POSIX(s2n_stuffer_write_vector_size(&ticket_size));
 
     RESULT_GUARD_POSIX(s2n_extension_list_send(S2N_EXTENSION_LIST_NST, conn, output));

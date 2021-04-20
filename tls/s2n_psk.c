@@ -101,6 +101,16 @@ S2N_RESULT s2n_psk_clone(struct s2n_psk *new_psk, struct s2n_psk *original_psk)
     return S2N_RESULT_OK;
 }
 
+S2N_RESULT s2n_psk_get_keying_material_expiration(struct s2n_psk *psk, uint64_t *expiration_timestamp)
+{
+    RESULT_ENSURE_REF(psk);
+    RESULT_ENSURE_REF(expiration_timestamp);
+    uint64_t keying_material_lifetime_in_nanos = psk->keying_material_lifetime * (uint64_t) ONE_SEC_IN_NANOS;
+    RESULT_ENSURE_NO_OVERFLOW(psk->ticket_issue_time, keying_material_lifetime_in_nanos, UINT64_MAX);
+    *expiration_timestamp = psk->ticket_issue_time + keying_material_lifetime_in_nanos;
+    return S2N_RESULT_OK;
+}
+
 S2N_CLEANUP_RESULT s2n_psk_wipe(struct s2n_psk *psk)
 {
     if (psk == NULL) {
