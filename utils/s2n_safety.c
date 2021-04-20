@@ -221,9 +221,8 @@ int s2n_mul_overflow(uint32_t a, uint32_t b, uint32_t* out)
 int s2n_add_overflow(uint32_t a, uint32_t b, uint32_t* out)
 {
     POSIX_ENSURE_REF(out);
-    uint64_t result = ((uint64_t) a) + ((uint64_t) b);
-    POSIX_ENSURE(result <= UINT32_MAX, S2N_ERR_INTEGER_OVERFLOW);
-    *out = (uint32_t) result;
+    POSIX_ENSURE_NO_OVERFLOW(a, b, UINT32_MAX);
+    *out = (a + b);
     return S2N_SUCCESS;
 }
 

@@ -186,6 +186,11 @@
 #define RESULT_GUARD_OSSL(result, error)                       __S2N_ENSURE((result) == _OSSL_SUCCESS, RESULT_BAIL(error))
 
 /**
+ * Ensures `a + b` does not overflow `max`, otherwise the function will `RESULT_BAIL` with `S2N_ERR_INTEGER_OVERFLOW`
+ */
+#define RESULT_ENSURE_NO_OVERFLOW(a, b, max)                   __S2N_ENSURE(b <= max, RESULT_BAIL(S2N_ERR_INTEGER_OVERFLOW)); __S2N_ENSURE(a <= max - b, RESULT_BAIL(S2N_ERR_INTEGER_OVERFLOW))
+
+/**
  * Ensures `s2n_result_is_ok(result)`, otherwise the function will return `S2N_RESULT_ERROR`
  */
 #define RESULT_GUARD_RESULT(result)                            __S2N_ENSURE(s2n_result_is_ok(result), return S2N_RESULT_ERROR)
@@ -351,6 +356,11 @@
 #define POSIX_GUARD_OSSL(result, error)                       __S2N_ENSURE((result) == _OSSL_SUCCESS, POSIX_BAIL(error))
 
 /**
+ * Ensures `a + b` does not overflow `max`, otherwise the function will `POSIX_BAIL` with `S2N_ERR_INTEGER_OVERFLOW`
+ */
+#define POSIX_ENSURE_NO_OVERFLOW(a, b, max)                   __S2N_ENSURE(b <= max, POSIX_BAIL(S2N_ERR_INTEGER_OVERFLOW)); __S2N_ENSURE(a <= max - b, POSIX_BAIL(S2N_ERR_INTEGER_OVERFLOW))
+
+/**
  * Ensures `s2n_result_is_ok(result)`, otherwise the function will return `S2N_FAILURE`
  */
 #define POSIX_GUARD_RESULT(result)                            __S2N_ENSURE(s2n_result_is_ok(result), return S2N_FAILURE)
@@ -514,6 +524,11 @@
  * Ensures `result == _OSSL_SUCCESS`, otherwise the function will `PTR_BAIL` with `error`
  */
 #define PTR_GUARD_OSSL(result, error)                         __S2N_ENSURE((result) == _OSSL_SUCCESS, PTR_BAIL(error))
+
+/**
+ * Ensures `a + b` does not overflow `max`, otherwise the function will `PTR_BAIL` with `S2N_ERR_INTEGER_OVERFLOW`
+ */
+#define PTR_ENSURE_NO_OVERFLOW(a, b, max)                     __S2N_ENSURE(b <= max, PTR_BAIL(S2N_ERR_INTEGER_OVERFLOW)); __S2N_ENSURE(a <= max - b, PTR_BAIL(S2N_ERR_INTEGER_OVERFLOW))
 
 /**
  * Ensures `s2n_result_is_ok(result)`, otherwise the function will return `NULL`

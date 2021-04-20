@@ -144,6 +144,11 @@ Ensures `s2n_result_is_ok(result)`, otherwise the function will return `S2N_RESU
 Ensures `result == _OSSL_SUCCESS`, otherwise the function will `RESULT_BAIL` with `error`
 
 
+### RESULT_ENSURE_NO_OVERFLOW(a, b, max)
+
+Ensures `a + b` does not overflow `max`, otherwise the function will `RESULT_BAIL` with `S2N_ERR_INTEGER_OVERFLOW`
+
+
 ### RESULT_GUARD_RESULT(result)
 
 Ensures `s2n_result_is_ok(result)`, otherwise the function will return `S2N_RESULT_ERROR`
@@ -298,6 +303,11 @@ Ensures `(result) >= S2N_SUCCESS`, otherwise the function will return `S2N_FAILU
 Ensures `result == _OSSL_SUCCESS`, otherwise the function will `POSIX_BAIL` with `error`
 
 
+### POSIX_ENSURE_NO_OVERFLOW(a, b, max)
+
+Ensures `a + b` does not overflow `max`, otherwise the function will `POSIX_BAIL` with `S2N_ERR_INTEGER_OVERFLOW`
+
+
 ### POSIX_GUARD_RESULT(result)
 
 Ensures `s2n_result_is_ok(result)`, otherwise the function will return `S2N_FAILURE`
@@ -450,6 +460,11 @@ Ensures `(result) != NULL`, otherwise the function will return `NULL`
 ### PTR_GUARD_OSSL(result, error)
 
 Ensures `result == _OSSL_SUCCESS`, otherwise the function will `PTR_BAIL` with `error`
+
+
+### PTR_ENSURE_NO_OVERFLOW(a, b, max)
+
+Ensures `a + b` does not overflow `max`, otherwise the function will `PTR_BAIL` with `S2N_ERR_INTEGER_OVERFLOW`
 
 
 ### PTR_GUARD_RESULT(result)

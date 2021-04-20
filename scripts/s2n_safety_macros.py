@@ -614,6 +614,31 @@ MACROS = {
             '{expect_err}({prefix}GUARD_OSSL_harness(0, S2N_ERR_SAFETY), S2N_ERR_SAFETY);',
         ],
     ),
+    'ENSURE_NO_OVERFLOW(a, b, max)': dict(
+        doc  = 'Ensures `a + b` does not overflow `max`, otherwise the function will `{bail}` with `S2N_ERR_INTEGER_OVERFLOW` ',
+        impl = '__S2N_ENSURE(b <= max, {bail}(S2N_ERR_INTEGER_OVERFLOW)); __S2N_ENSURE(a <= max - b, {bail}(S2N_ERR_INTEGER_OVERFLOW))',
+        harness = '''
+        static {ret} {prefix}ENSURE_NO_OVERFLOW_harness(uint64_t a, uint64_t b, uint64_t max)
+        {{
+            {prefix}ENSURE_NO_OVERFLOW(a, b, max);
+            return {ok};
+        }}
+        ''',
+        tests = [
+            '{expect_ok}({prefix}ENSURE_NO_OVERFLOW_harness(0, 0, 0));',
+            '{expect_ok}({prefix}ENSURE_NO_OVERFLOW_harness(0, 1, 1));',
+            '{expect_ok}({prefix}ENSURE_NO_OVERFLOW_harness(1, 0, 1));',
+            '{expect_ok}({prefix}ENSURE_NO_OVERFLOW_harness(1, 1, 2));',
+            '{expect_ok}({prefix}ENSURE_NO_OVERFLOW_harness(UINT64_MAX, 0, UINT64_MAX));',
+            '{expect_ok}({prefix}ENSURE_NO_OVERFLOW_harness(0, UINT64_MAX, UINT64_MAX));',
+            '{expect_err}({prefix}ENSURE_NO_OVERFLOW_harness(1, 1, 1), S2N_ERR_INTEGER_OVERFLOW);',
+            '{expect_err}({prefix}ENSURE_NO_OVERFLOW_harness(0, 2, 1), S2N_ERR_INTEGER_OVERFLOW);',
+            '{expect_err}({prefix}ENSURE_NO_OVERFLOW_harness(2, 0, 1), S2N_ERR_INTEGER_OVERFLOW);',
+            '{expect_err}({prefix}ENSURE_NO_OVERFLOW_harness(UINT64_MAX, 1, UINT64_MAX), S2N_ERR_INTEGER_OVERFLOW);',
+            '{expect_err}({prefix}ENSURE_NO_OVERFLOW_harness(1, UINT64_MAX, UINT64_MAX), S2N_ERR_INTEGER_OVERFLOW);',
+            '{expect_err}({prefix}ENSURE_NO_OVERFLOW_harness(UINT64_MAX, UINT64_MAX, UINT64_MAX), S2N_ERR_INTEGER_OVERFLOW);',
+        ],
+    ),
 }
 
 max_macro_len = max(map(len, MACROS.keys())) + 8
