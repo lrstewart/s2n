@@ -45,7 +45,6 @@ def test_session_resumption_s2n_server(managed_process, cipher, curve, protocol,
 
     # Client inputs stored session ticket to resume a session
     client_options.extra_flags = ['-sess_in', ticket_filename]
-    client_options.data_to_send = random_bytes
 
     port = next(available_ports)
     client_options.port = port
