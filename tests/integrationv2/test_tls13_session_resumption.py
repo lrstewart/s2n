@@ -18,9 +18,9 @@ from utils import invalid_test_parameters, get_parameter_name, get_expected_s2n_
 @pytest.mark.parametrize("provider", [OpenSSL], ids=get_parameter_name)
 def test_session_resumption_s2n_server(managed_process, cipher, curve, protocol, provider, certificate):
     host = "localhost"
-    port = next(available_ports)
+    port = str(next(available_ports))
     
-    ticket_filename = 'session_ticket_' + str(port)
+    ticket_filename = 'session_ticket_' + port
 
     client_options = ProviderOptions(
         mode=Provider.ClientMode,
@@ -46,7 +46,7 @@ def test_session_resumption_s2n_server(managed_process, cipher, curve, protocol,
     # Client inputs stored session ticket to resume a session
     client_options.extra_flags = ['-sess_in', ticket_filename]
 
-    port = next(available_ports)
+    port = str(next(available_ports))
     client_options.port = port
     server_options.port = port
 
