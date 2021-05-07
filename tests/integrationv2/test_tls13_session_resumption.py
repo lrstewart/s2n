@@ -43,7 +43,16 @@ def test_session_resumption_s2n_server(managed_process, cipher, curve, protocol,
     server = managed_process(S2N, server_options, timeout=5)
     client = managed_process(provider, client_options, timeout=5)
 
+    for results in client.get_results():
+        assert results.exception is None
+        assert results.exit_code == 0
+
+    for results in server.get_results():
+        assert results.exception is None
+        assert results.exit_code == 0
+
     # Client inputs stored session ticket to resume a session
+    assert os.path.exists(ticket_filename)
     client_options.extra_flags = ['-sess_in', ticket_filename]
 
     port = str(next(available_ports))
