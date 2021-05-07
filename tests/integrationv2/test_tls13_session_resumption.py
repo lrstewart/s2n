@@ -31,6 +31,7 @@ def test_session_resumption_s2n_server(managed_process, cipher, curve, protocol,
         insecure=True,
         reconnect=False,
         extra_flags = ['-sess_out', ticket_filename],
+        data_to_send = data_bytes(4096),
         protocol=protocol)
     
     server_options = copy.copy(client_options)
