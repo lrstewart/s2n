@@ -185,7 +185,7 @@ class S2N(Provider):
         """
         Using the passed ProviderOptions, create a command line.
         """
-        cmd_line = ['s2nd', '-X', '--self-service-blinding', '--non-blocking']
+        cmd_line = ['s2nd', '-X', '--non-blocking']
 
         if self.options.key is not None:
             cmd_line.extend(['--key', self.options.key])
