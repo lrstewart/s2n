@@ -43,6 +43,8 @@ test_client_authentication:
 	$(call run_tox,$@.py)
 test_dynamic_record_sizes:
 	$(call run_tox,$@.py)
+test_early_data:
+	$(call run_tox,$@.py)
 test_happy_path:
 	$(call run_tox,$@.py)
 test_session_resumption:

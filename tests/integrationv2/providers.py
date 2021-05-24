@@ -112,8 +112,8 @@ class S2N(Provider):
     The S2N provider translates flags into s2nc/s2nd command line arguments.
     """
     def __init__(self, options: ProviderOptions):
-        self.ready_to_send_input_marker = None
         Provider.__init__(self, options)
+        self.ready_to_send_input_marker = 's2n is ready'
 
     @classmethod
     def supports_protocol(cls, protocol, with_cert=None):
@@ -138,9 +138,6 @@ class S2N(Provider):
         # but all other tests can.
         if self.options.reconnect is not True:
             cmd_line.append('-e')
-
-        # This is the last thing printed by s2nc before it is ready to send/receive data
-        self.ready_to_send_input_marker = 's2n is ready'
 
         if self.options.use_session_ticket is False:
             cmd_line.append('-T')
@@ -231,8 +228,8 @@ class OpenSSL(Provider):
     _version = get_flag(S2N_PROVIDER_VERSION)
 
     def __init__(self, options: ProviderOptions):
-        self.ready_to_send_input_marker = None
         Provider.__init__(self, options)
+        self.ready_to_send_input_marker = 'SSL_connect:SSL negotiation finished successfully'
 
     def _join_ciphers(self, ciphers):
         """
@@ -319,9 +316,6 @@ class OpenSSL(Provider):
         return True
 
     def setup_client(self):
-        # s_client prints this message before it is ready to send/receive data
-        self.ready_to_send_input_marker = 'Verify return code'
-
         cmd_line = ['openssl', 's_client']
         cmd_line.extend(['-connect', '{}:{}'.format(self.options.host, self.options.port)])
 
@@ -425,7 +419,6 @@ class JavaSSL(Provider):
     implemented yet.
     """
     def __init__(self, options: ProviderOptions):
-        self.ready_to_send_input_marker = None
         Provider.__init__(self, options)
 
     @classmethod
@@ -476,7 +469,6 @@ class BoringSSL(Provider):
     implemented, neither are in the default configuration.
     """
     def __init__(self, options: ProviderOptions):
-        self.ready_to_send_input_marker = None
         Provider.__init__(self, options)
 
     def setup_server(self):
