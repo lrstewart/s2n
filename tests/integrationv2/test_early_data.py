@@ -102,7 +102,7 @@ def get_ticket_from_s2n_server(options, managed_process, provider, certificate):
 
     assert not os.path.exists(options.ticket_file)
 
-    s2n_server = managed_process(S2N, server_options)
+    s2n_server = managed_process(S2N, server_options, send_marker=S2N.get_send_marker())
     client = managed_process(provider, client_options, close_marker=str(close_marker_bytes))
 
     for results in s2n_server.get_results():
