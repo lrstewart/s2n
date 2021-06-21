@@ -378,10 +378,10 @@ int main(int argc, char **argv)
 
             while(s2n_conn_get_current_message_type(client_conn) != APPLICATION_DATA) {
                 /* Write bad data into the temp hash */
-                EXPECT_SUCCESS(s2n_hash_reset(&client_conn->temp_hash_copy));
-                EXPECT_SUCCESS(s2n_hash_update(&client_conn->temp_hash_copy, client_data, sizeof(client_data)));
-                EXPECT_SUCCESS(s2n_hash_reset(&server_conn->temp_hash_copy));
-                EXPECT_SUCCESS(s2n_hash_update(&server_conn->temp_hash_copy, server_data, sizeof(server_data)));
+                EXPECT_SUCCESS(s2n_hash_reset(&client_conn->handshake.temp_hash_copy));
+                EXPECT_SUCCESS(s2n_hash_update(&client_conn->handshake.temp_hash_copy, client_data, sizeof(client_data)));
+                EXPECT_SUCCESS(s2n_hash_reset(&server_conn->handshake.temp_hash_copy));
+                EXPECT_SUCCESS(s2n_hash_update(&server_conn->handshake.temp_hash_copy, server_data, sizeof(server_data)));
 
                 EXPECT_OK(s2n_negotiate_test_server_and_client_step(server_conn, client_conn));
             }

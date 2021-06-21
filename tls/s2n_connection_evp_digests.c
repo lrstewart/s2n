@@ -44,7 +44,7 @@ int s2n_connection_save_hash_state(struct s2n_connection_hash_handles *hash_hand
     hash_handles->sha384 = conn->handshake.sha384.digest.high_level;
     hash_handles->sha512 = conn->handshake.sha512.digest.high_level;
     hash_handles->md5_sha1 = conn->handshake.md5_sha1.digest.high_level;
-    hash_handles->temp_hash_copy = conn->temp_hash_copy.digest.high_level;
+    hash_handles->temp_hash_copy = conn->handshake.temp_hash_copy.digest.high_level;
     hash_handles->server_hello_copy = conn->handshake.server_hello_copy.digest.high_level;
     hash_handles->server_finished_copy = conn->handshake.server_finished_copy.digest.high_level;
 
@@ -95,7 +95,7 @@ int s2n_connection_restore_hash_state(struct s2n_connection *conn, struct s2n_co
     conn->handshake.sha384.digest.high_level = hash_handles->sha384;
     conn->handshake.sha512.digest.high_level = hash_handles->sha512;
     conn->handshake.md5_sha1.digest.high_level = hash_handles->md5_sha1;
-    conn->temp_hash_copy.digest.high_level = hash_handles->temp_hash_copy;
+    conn->handshake.temp_hash_copy.digest.high_level = hash_handles->temp_hash_copy;
     conn->handshake.server_hello_copy.digest.high_level = hash_handles->server_hello_copy;
     conn->handshake.server_finished_copy.digest.high_level = hash_handles->server_finished_copy;
 

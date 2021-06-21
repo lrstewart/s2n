@@ -130,6 +130,9 @@ struct s2n_handshake {
     struct s2n_hash_state sha512;
     struct s2n_hash_state md5_sha1;
 
+    /* Reuseable hash state to avoid allocing temporary hash states. */
+    struct s2n_hash_state temp_hash_copy;
+
     /* TLS1.3 may not calculate the secret that requires a specific hash state immediately.
      * Save the hashes for later use. */
     struct s2n_hash_state server_hello_copy;
