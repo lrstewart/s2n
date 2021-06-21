@@ -360,6 +360,9 @@ struct s2n_connection {
     uint32_t server_max_early_data_size;
     struct s2n_blob server_early_data_context;
     uint32_t server_keying_material_lifetime;
+
+    /* Reuseable hash state to avoid allocing temporary hash states. */
+    struct s2n_hash_state temp_hash_copy;
 };
 
 int s2n_connection_is_managed_corked(const struct s2n_connection *s2n_connection);
