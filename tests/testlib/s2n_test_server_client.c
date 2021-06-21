@@ -108,6 +108,30 @@ S2N_RESULT s2n_negotiate_test_server_and_client_until_message(struct s2n_connect
     return S2N_RESULT_OK;
 }
 
+S2N_RESULT s2n_negotiate_test_server_and_client_step(struct s2n_connection *server_conn,
+        struct s2n_connection *client_conn)
+{
+    RESULT_ENSURE_REF(server_conn);
+
+    int old_message_number = server_conn->handshake.message_number;
+
+    /* Figure out the next message in the handshake.
+     * We use the server instead of the client because the server determines the handshake type sooner.
+     */
+    message_type_t next_message;
+    do {
+        server_conn->handshake.message_number++;
+        next_message = s2n_conn_get_current_message_type(server_conn);
+    /* If TLS1.3, ignore the optional CCS messages.
+     * The peer may not write them, which leads s2n_negotiate_test_server_and_client to conclude
+     * that we're blocked indefinitely. */
+    } while(server_conn->actual_protocol_version >= S2N_TLS13
+            && (next_message == CLIENT_CHANGE_CIPHER_SPEC || next_message == SERVER_CHANGE_CIPHER_SPEC));
+
+    server_conn->handshake.message_number = old_message_number;
+    return s2n_negotiate_test_server_and_client_until_message(server_conn, client_conn, next_message);
+}
+
 int s2n_shutdown_test_server_and_client(struct s2n_connection *server_conn, struct s2n_connection *client_conn)
 {
     int server_rc = -1;

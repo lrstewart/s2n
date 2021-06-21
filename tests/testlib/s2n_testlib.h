@@ -161,6 +161,7 @@ int s2n_test_cert_chain_and_key_new(struct s2n_cert_chain_and_key **chain_and_ke
 int s2n_negotiate_test_server_and_client(struct s2n_connection *server_conn, struct s2n_connection *client_conn);
 S2N_RESULT s2n_negotiate_test_server_and_client_until_message(struct s2n_connection *server_conn,
         struct s2n_connection *client_conn, message_type_t message_type);
+S2N_RESULT s2n_negotiate_test_server_and_client_step(struct s2n_connection *server_conn, struct s2n_connection *client_conn);
 int s2n_shutdown_test_server_and_client(struct s2n_connection *server_conn, struct s2n_connection *client_conn);
 S2N_RESULT s2n_negotiate_test_server_and_client_with_early_data(struct s2n_connection *server_conn,
         struct s2n_connection *client_conn, struct s2n_blob *early_data_to_send, struct s2n_blob *early_data_received);

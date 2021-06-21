@@ -326,5 +326,76 @@ int main(int argc, char **argv)
     /* Reference value from command line sha512sum */
     EXPECT_EQUAL(memcmp(output_pad, "32c07a0b3a3fd0dd8f28021b4eea1c19d871f4586316b394124f3c99fb68e59579e05039c3bd9aab9841214f1c132f7666eb8800f14be8b9b091a7dba32bfe6f", 64 * 2), 0);
 
+    EXPECT_SUCCESS(s2n_reset_tls13());
+
+    /* Test that reusing a hash does not affect handshakes, even if hash data is not cleaned up */
+    {
+        struct {
+            const char* security_policy;
+            uint8_t protocol_version;
+        } test_cases[] = {
+                { .security_policy = "test_all_ecdsa", .protocol_version = S2N_TLS12 },
+                { .security_policy = "default_tls13", .protocol_version = S2N_TLS13 },
+        };
+        uint8_t client_data[100] = "client potential abandoned hash data";
+        uint8_t server_data[100] = "server potential abandoned hash data";
+
+        struct s2n_cert_chain_and_key *ecdsa_cert_chain = NULL;
+        EXPECT_SUCCESS(s2n_test_cert_chain_and_key_new(&ecdsa_cert_chain,
+                S2N_DEFAULT_ECDSA_TEST_CERT_CHAIN, S2N_DEFAULT_ECDSA_TEST_PRIVATE_KEY));
+        char dhparams_pem[S2N_MAX_TEST_PEM_SIZE] = { 0 };
+        EXPECT_SUCCESS(s2n_read_test_pem(S2N_DEFAULT_TEST_DHPARAMS, dhparams_pem, S2N_MAX_TEST_PEM_SIZE));
+
+        struct s2n_config *config = s2n_config_new();
+        EXPECT_NOT_NULL(config);
+        EXPECT_SUCCESS(s2n_config_add_cert_chain_and_key_to_store(config, ecdsa_cert_chain));
+        EXPECT_SUCCESS(s2n_config_add_dhparams(config, dhparams_pem));
+        EXPECT_SUCCESS(s2n_config_set_verification_ca_location(config, S2N_DEFAULT_ECDSA_TEST_CERT_CHAIN, NULL));
+        EXPECT_SUCCESS(s2n_config_set_unsafe_for_testing(config));
+
+        /* Some hashes are only calculated when using client auth. */
+        EXPECT_SUCCESS(s2n_config_set_client_auth_type(config, S2N_CERT_AUTH_REQUIRED));
+
+        struct s2n_connection *client_conn = s2n_connection_new(S2N_CLIENT);
+        EXPECT_NOT_NULL(client_conn);
+        EXPECT_SUCCESS(s2n_connection_set_config(client_conn, config));
+
+        struct s2n_connection *server_conn = s2n_connection_new(S2N_SERVER);
+        EXPECT_NOT_NULL(server_conn);
+        EXPECT_SUCCESS(s2n_connection_set_config(server_conn, config));
+
+        struct s2n_test_io_pair io_pair = { 0 };
+        EXPECT_SUCCESS(s2n_io_pair_init_non_blocking(&io_pair));
+
+        for (size_t i = 0; i < s2n_array_len(test_cases); i++) {
+            EXPECT_SUCCESS(s2n_connection_wipe(client_conn));
+            EXPECT_SUCCESS(s2n_connection_set_cipher_preferences(client_conn, test_cases[i].security_policy));
+            EXPECT_SUCCESS(s2n_connection_set_io_pair(client_conn, &io_pair));
+
+            EXPECT_SUCCESS(s2n_connection_wipe(server_conn));
+            EXPECT_SUCCESS(s2n_connection_set_cipher_preferences(server_conn, test_cases[i].security_policy));
+            EXPECT_SUCCESS(s2n_connection_set_io_pair(server_conn, &io_pair));
+
+            while(s2n_conn_get_current_message_type(client_conn) != APPLICATION_DATA) {
+                /* Write bad data into the temp hash */
+                EXPECT_SUCCESS(s2n_hash_reset(&client_conn->handshake.temp_hash_copy));
+                EXPECT_SUCCESS(s2n_hash_update(&client_conn->handshake.temp_hash_copy, client_data, sizeof(client_data)));
+                EXPECT_SUCCESS(s2n_hash_reset(&server_conn->handshake.temp_hash_copy));
+                EXPECT_SUCCESS(s2n_hash_update(&server_conn->handshake.temp_hash_copy, server_data, sizeof(server_data)));
+
+                EXPECT_OK(s2n_negotiate_test_server_and_client_step(server_conn, client_conn));
+            }
+
+            EXPECT_EQUAL(client_conn->actual_protocol_version, test_cases[i].protocol_version);
+            EXPECT_TRUE(IS_CLIENT_AUTH_HANDSHAKE(client_conn));
+            EXPECT_FALSE(IS_CLIENT_AUTH_NO_CERT(client_conn));
+        }
+
+        EXPECT_SUCCESS(s2n_connection_free(client_conn));
+        EXPECT_SUCCESS(s2n_connection_free(server_conn));
+        EXPECT_SUCCESS(s2n_config_free(config));
+        EXPECT_SUCCESS(s2n_cert_chain_and_key_free(ecdsa_cert_chain));
+    }
+
     END_TEST();
 }
