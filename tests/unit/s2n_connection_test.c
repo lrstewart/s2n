@@ -50,6 +50,15 @@ int main(int argc, char **argv)
     BEGIN_TEST();
     EXPECT_SUCCESS(s2n_disable_tls13());
 
+    /* Test s2n_connection does not grow too much. */
+    {
+        /* s2n_connection is a very large object. We should be working to reduce its
+         * size, not increase it. Carefully consider any increases to this number.
+         */
+        const size_t connection_size = 14400;
+        EXPECT_TRUE(sizeof(struct s2n_connection) <= connection_size);
+    }
+
     /* s2n_get_server_name */
     {
         const char* test_server_name = "A server name";
