@@ -434,7 +434,7 @@ void cbmc_populate_s2n_psk_parameters(struct s2n_psk_parameters *s2n_psk_paramet
 /*
  * Populates the fields of a pre-allocated s2n_prf_working_space for CBMC proofs.
  */
-void cbmc_populate_s2n_prf_working_space(struct s2n_prf_working_space *s2n_prf_working_space);
+void cbmc_populate_s2n_prf_working_space(union s2n_prf_working_space *s2n_prf_working_space);
 
 /*
  * Populates the fields of a pre-allocated s2n_handshake for CBMC proofs.

@@ -35,7 +35,7 @@
 #include "utils/s2n_blob.h"
 #include "utils/s2n_mem.h"
 
-static int s2n_sslv3_prf(struct s2n_prf_working_space *ws, struct s2n_blob *secret, struct s2n_blob *seed_a,
+static int s2n_sslv3_prf(union s2n_prf_working_space *ws, struct s2n_blob *secret, struct s2n_blob *seed_a,
         struct s2n_blob *seed_b, struct s2n_blob *seed_c, struct s2n_blob *out)
 {
     struct s2n_hash_state *md5 = &ws->ssl3.md5;
@@ -89,13 +89,13 @@ static int s2n_sslv3_prf(struct s2n_prf_working_space *ws, struct s2n_blob *secr
 }
 
 #if !defined(OPENSSL_IS_BORINGSSL) && !defined(OPENSSL_IS_AWSLC)
-static int s2n_evp_hmac_p_hash_new(struct s2n_prf_working_space *ws)
+static int s2n_evp_hmac_p_hash_new(union s2n_prf_working_space *ws)
 {
     POSIX_ENSURE_REF(ws->tls.p_hash.evp_hmac.evp_digest.ctx = S2N_EVP_MD_CTX_NEW());
     return 0;
 }
 
-static int s2n_evp_hmac_p_hash_digest_init(struct s2n_prf_working_space *ws)
+static int s2n_evp_hmac_p_hash_digest_init(union s2n_prf_working_space *ws)
 {
     POSIX_ENSURE_REF(ws->tls.p_hash.evp_hmac.evp_digest.md);
     POSIX_ENSURE_REF(ws->tls.p_hash.evp_hmac.evp_digest.ctx);
@@ -112,7 +112,7 @@ static int s2n_evp_hmac_p_hash_digest_init(struct s2n_prf_working_space *ws)
     return 0;
 }
 
-static int s2n_evp_hmac_p_hash_init(struct s2n_prf_working_space *ws, s2n_hmac_algorithm alg, struct s2n_blob *secret)
+static int s2n_evp_hmac_p_hash_init(union s2n_prf_working_space *ws, s2n_hmac_algorithm alg, struct s2n_blob *secret)
 {
     /* Initialize the message digest */
     switch (alg) {
@@ -147,14 +147,14 @@ static int s2n_evp_hmac_p_hash_init(struct s2n_prf_working_space *ws, s2n_hmac_a
     return s2n_evp_hmac_p_hash_digest_init(ws);
 }
 
-static int s2n_evp_hmac_p_hash_update(struct s2n_prf_working_space *ws, const void *data, uint32_t size)
+static int s2n_evp_hmac_p_hash_update(union s2n_prf_working_space *ws, const void *data, uint32_t size)
 {
     POSIX_GUARD_OSSL(EVP_DigestSignUpdate(ws->tls.p_hash.evp_hmac.evp_digest.ctx, data, (size_t)size), S2N_ERR_P_HASH_UPDATE_FAILED);
 
     return 0;
 }
 
-static int s2n_evp_hmac_p_hash_digest(struct s2n_prf_working_space *ws, void *digest, uint32_t size)
+static int s2n_evp_hmac_p_hash_digest(union s2n_prf_working_space *ws, void *digest, uint32_t size)
 {
     /* EVP_DigestSign API's require size_t data structures */
     size_t digest_size = size;
@@ -164,21 +164,21 @@ static int s2n_evp_hmac_p_hash_digest(struct s2n_prf_working_space *ws, void *di
     return 0;
 }
 
-static int s2n_evp_hmac_p_hash_wipe(struct s2n_prf_working_space *ws)
+static int s2n_evp_hmac_p_hash_wipe(union s2n_prf_working_space *ws)
 {
   POSIX_GUARD_OSSL(S2N_EVP_MD_CTX_RESET(ws->tls.p_hash.evp_hmac.evp_digest.ctx), S2N_ERR_P_HASH_WIPE_FAILED);
 
     return 0;
 }
 
-static int s2n_evp_hmac_p_hash_reset(struct s2n_prf_working_space *ws)
+static int s2n_evp_hmac_p_hash_reset(union s2n_prf_working_space *ws)
 {
     POSIX_GUARD(s2n_evp_hmac_p_hash_wipe(ws));
 
     return s2n_evp_hmac_p_hash_digest_init(ws);
 }
 
-static int s2n_evp_hmac_p_hash_cleanup(struct s2n_prf_working_space *ws)
+static int s2n_evp_hmac_p_hash_cleanup(union s2n_prf_working_space *ws)
 {
     /* Prepare the workspace md_ctx for the next p_hash */
     POSIX_GUARD(s2n_evp_hmac_p_hash_wipe(ws));
@@ -191,7 +191,7 @@ static int s2n_evp_hmac_p_hash_cleanup(struct s2n_prf_working_space *ws)
     return 0;
 }
 
-static int s2n_evp_hmac_p_hash_free(struct s2n_prf_working_space *ws)
+static int s2n_evp_hmac_p_hash_free(union s2n_prf_working_space *ws)
 {
     POSIX_ENSURE_REF(ws->tls.p_hash.evp_hmac.evp_digest.ctx);
     S2N_EVP_MD_CTX_FREE(ws->tls.p_hash.evp_hmac.evp_digest.ctx);
@@ -211,39 +211,39 @@ static const struct s2n_p_hash_hmac s2n_evp_hmac = {
 };
 #endif /* !defined(OPENSSL_IS_BORINGSSL) && !defined(OPENSSL_IS_AWSLC) */
 
-static int s2n_hmac_p_hash_new(struct s2n_prf_working_space *ws)
+static int s2n_hmac_p_hash_new(union s2n_prf_working_space *ws)
 {
     POSIX_GUARD(s2n_hmac_new(&ws->tls.p_hash.s2n_hmac));
 
     return s2n_hmac_init(&ws->tls.p_hash.s2n_hmac, S2N_HMAC_NONE, NULL, 0);
 }
 
-static int s2n_hmac_p_hash_init(struct s2n_prf_working_space *ws, s2n_hmac_algorithm alg, struct s2n_blob *secret)
+static int s2n_hmac_p_hash_init(union s2n_prf_working_space *ws, s2n_hmac_algorithm alg, struct s2n_blob *secret)
 {
     return s2n_hmac_init(&ws->tls.p_hash.s2n_hmac, alg, secret->data, secret->size);
 }
 
-static int s2n_hmac_p_hash_update(struct s2n_prf_working_space *ws, const void *data, uint32_t size)
+static int s2n_hmac_p_hash_update(union s2n_prf_working_space *ws, const void *data, uint32_t size)
 {
     return s2n_hmac_update(&ws->tls.p_hash.s2n_hmac, data, size);
 }
 
-static int s2n_hmac_p_hash_digest(struct s2n_prf_working_space *ws, void *digest, uint32_t size)
+static int s2n_hmac_p_hash_digest(union s2n_prf_working_space *ws, void *digest, uint32_t size)
 {
     return s2n_hmac_digest(&ws->tls.p_hash.s2n_hmac, digest, size);
 }
 
-static int s2n_hmac_p_hash_reset(struct s2n_prf_working_space *ws)
+static int s2n_hmac_p_hash_reset(union s2n_prf_working_space *ws)
 {
     return s2n_hmac_reset(&ws->tls.p_hash.s2n_hmac);
 }
 
-static int s2n_hmac_p_hash_cleanup(struct s2n_prf_working_space *ws)
+static int s2n_hmac_p_hash_cleanup(union s2n_prf_working_space *ws)
 {
     return s2n_hmac_p_hash_reset(ws);
 }
 
-static int s2n_hmac_p_hash_free(struct s2n_prf_working_space *ws)
+static int s2n_hmac_p_hash_free(union s2n_prf_working_space *ws)
 {
     return s2n_hmac_free(&ws->tls.p_hash.s2n_hmac);
 }
@@ -258,7 +258,7 @@ static const struct s2n_p_hash_hmac s2n_hmac = {
     .free = &s2n_hmac_p_hash_free,
 };
 
-static int s2n_p_hash(struct s2n_prf_working_space *ws, s2n_hmac_algorithm alg, struct s2n_blob *secret, struct s2n_blob *label,
+static int s2n_p_hash(union s2n_prf_working_space *ws, s2n_hmac_algorithm alg, struct s2n_blob *secret, struct s2n_blob *label,
                       struct s2n_blob *seed_a, struct s2n_blob *seed_b, struct s2n_blob *seed_c, struct s2n_blob *out)
 {
     uint8_t digest_size;
