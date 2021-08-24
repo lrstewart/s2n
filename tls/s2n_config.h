@@ -46,6 +46,11 @@ struct s2n_config {
      * See https://github.com/awslabs/s2n/blob/main/docs/USAGE-GUIDE.md */
     unsigned cert_req_dss_legacy_compat_enabled:1;
 
+    /* It's possible to use a certificate without loading the private key,
+     * but async signing must be enabled. Use this flag to enforce that restriction.
+     */
+    unsigned no_signing_key:1;
+
     struct s2n_dh_params *dhparams;
     /* Needed until we can deprecate s2n_config_add_cert_chain_and_key. This is
      * used to release memory allocated only in the deprecated API that the application 
