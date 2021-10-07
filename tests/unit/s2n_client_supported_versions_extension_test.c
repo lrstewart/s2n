@@ -92,6 +92,30 @@ int main(int argc, char **argv)
         EXPECT_SUCCESS(s2n_stuffer_free(&extension));
     }
 
+    /* If quic enabled, client only includes TLS1.3+ in the list */
+    if (s2n_is_tls13_fully_supported()) {
+        struct s2n_connection *client_conn = s2n_connection_new(S2N_CLIENT);
+        EXPECT_NOT_NULL(client_conn);
+        EXPECT_SUCCESS(s2n_connection_set_config(client_conn, config));
+        EXPECT_SUCCESS(s2n_connection_enable_quic(client_conn));
+
+        struct s2n_stuffer extension = { 0 };
+        s2n_stuffer_growable_alloc(&extension, 0);
+        EXPECT_SUCCESS(s2n_client_supported_versions_extension.send(client_conn, &extension));
+
+        /* Only one version: TLS1.3 */
+        uint8_t extension_size = 0;
+        uint16_t version = 0;
+        EXPECT_SUCCESS(s2n_stuffer_read_uint8(&extension, &extension_size));
+        EXPECT_EQUAL(extension_size, sizeof(uint16_t));
+        EXPECT_SUCCESS(s2n_stuffer_read_uint16(&extension, &version));
+        EXPECT_EQUAL(version, 0x0304);
+        EXPECT_EQUAL(s2n_stuffer_data_available(&extension), 0);
+
+        EXPECT_SUCCESS(s2n_connection_free(client_conn));
+        EXPECT_SUCCESS(s2n_stuffer_free(&extension));
+    }
+
     /* Server selects highest supported version shared by client */
     {
         struct s2n_connection *server_conn;

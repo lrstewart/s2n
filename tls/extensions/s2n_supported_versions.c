@@ -27,5 +27,9 @@ int s2n_connection_get_minimum_supported_version(struct s2n_connection *conn, ui
     POSIX_GUARD(s2n_connection_get_security_policy(conn, &security_policy));
     *min_version = security_policy->minimum_protocol_version;
 
+    if (s2n_connection_is_quic_enabled(conn)) {
+        *min_version = MAX(*min_version, S2N_TLS13);
+    }
+
     return 0;
 }
