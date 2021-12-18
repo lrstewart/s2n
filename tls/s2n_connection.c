@@ -692,17 +692,62 @@ int s2n_connection_set_send_cb(struct s2n_connection *conn, s2n_send_fn send)
     return S2N_SUCCESS;
 }
 
+static S2N_RESULT s2n_connection_write_client_cert_chain(struct s2n_connection *conn)
+{
+    RESULT_ENSURE_REF(conn);
+    RESULT_ENSURE(conn->mode == S2N_SERVER, S2N_ERR_CLIENT_MODE);
+
+    DEFER_CLEANUP(struct s2n_cert_chain_and_key *cert_chain = s2n_cert_chain_and_key_new(), s2n_cert_chain_and_key_ptr_free);
+    RESULT_GUARD_POSIX(s2n_connection_get_peer_cert_chain(conn, cert_chain));
+
+    uint32_t cert_chain_count = 0;
+    RESULT_GUARD_POSIX(s2n_cert_chain_get_length(cert_chain, &cert_chain_count));
+
+    struct s2n_cert *cert = NULL;
+    const uint8_t *cert_der = 0;
+    uint32_t cert_length = 0;
+
+    /* Calculate how much memory we need to allocate for the cert chain */
+    uint32_t cert_chain_bytes_length = 0;
+    for (uint32_t i = 0; i < cert_chain_count; i++) {
+        RESULT_GUARD_POSIX(s2n_cert_chain_get_cert(cert_chain, &cert, i));
+        RESULT_ENSURE_REF(cert);
+        RESULT_GUARD_POSIX(s2n_cert_get_der(cert, &cert_der, &cert_length));
+
+        cert_chain_bytes_length += 3; /* Cert length is three bytes */
+        cert_chain_bytes_length += cert_length;
+    }
+    RESULT_GUARD_POSIX(s2n_realloc(&conn->handshake_params.client_cert_chain, cert_chain_bytes_length));
+
+    /* Write each cert's length + data into the cert chain */
+    struct s2n_stuffer client_cert_chain = { 0 };
+    RESULT_GUARD_POSIX(s2n_stuffer_init(&client_cert_chain, &conn->handshake_params.client_cert_chain));
+    for (uint32_t i = 0; i < cert_chain_count; i++) {
+        RESULT_GUARD_POSIX(s2n_cert_chain_get_cert(cert_chain, &cert, i));
+        RESULT_ENSURE_REF(cert);
+        RESULT_GUARD_POSIX(s2n_cert_get_der(cert, &cert_der, &cert_length));
+
+        RESULT_GUARD_POSIX(s2n_stuffer_write_uint24(&client_cert_chain, cert_length));
+        RESULT_GUARD_POSIX(s2n_stuffer_write_bytes(&client_cert_chain, cert_der, cert_length));
+    }
+
+    return S2N_RESULT_OK;
+}
+
 int s2n_connection_get_client_cert_chain(struct s2n_connection *conn, uint8_t **der_cert_chain_out, uint32_t *cert_chain_len)
 {
     POSIX_ENSURE_REF(conn);
     POSIX_ENSURE_REF(der_cert_chain_out);
     POSIX_ENSURE_REF(cert_chain_len);
-    POSIX_ENSURE_REF(conn->handshake_params.client_cert_chain.data);
 
+    if (conn->handshake_params.client_cert_chain.size == 0) {
+        POSIX_GUARD_RESULT(s2n_connection_write_client_cert_chain(conn));
+    }
+
+    POSIX_ENSURE_REF(conn->handshake_params.client_cert_chain.data);
     *der_cert_chain_out = conn->handshake_params.client_cert_chain.data;
     *cert_chain_len = conn->handshake_params.client_cert_chain.size;
-
-    return 0;
+    return S2N_SUCCESS;
 }
 
 int s2n_connection_get_cipher_preferences(struct s2n_connection *conn, const struct s2n_cipher_preferences **cipher_preferences)

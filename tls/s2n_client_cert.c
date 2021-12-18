@@ -65,10 +65,18 @@ int s2n_client_cert_recv(struct s2n_connection *conn)
     POSIX_GUARD(s2n_pkey_setup_for_type(&public_key, pkey_type));
     
     POSIX_GUARD(s2n_pkey_check_key_exists(&public_key));
-    POSIX_GUARD(s2n_dup(&client_cert_chain, &conn->handshake_params.client_cert_chain));
     conn->handshake_params.client_public_key = public_key;
     
-    return 0;
+    /* TLS1.3 introduced per-CertificateEntry extensions. Even if extensions are not
+     * used, each certificate will have a 2-byte extensions length appended.
+     * We can no longer just save the entire block of "certificate_list" memory
+     * as a valid certificate chain.
+     */
+    if (conn->actual_protocol_version < S2N_TLS13) {
+        POSIX_GUARD(s2n_dup(&client_cert_chain, &conn->handshake_params.client_cert_chain));
+    }
+
+    return S2N_SUCCESS;
 }
 
 
@@ -76,7 +84,7 @@ int s2n_client_cert_send(struct s2n_connection *conn)
 {
     struct s2n_cert_chain_and_key *chain_and_key = conn->handshake_params.our_chain_and_key;
 
-    if (conn->actual_protocol_version == S2N_TLS13) {
+    if (conn->actual_protocol_version >= S2N_TLS13) {
         /* If this message is in response to a CertificateRequest, the value of
          * certificate_request_context in that message.
          * https://tools.ietf.org/html/rfc8446#section-4.4.2
@@ -95,5 +103,5 @@ int s2n_client_cert_send(struct s2n_connection *conn)
     }
 
     POSIX_GUARD(s2n_send_cert_chain(conn, &conn->handshake.io, chain_and_key));
-    return 0;
+    return S2N_SUCCESS;
 }
