@@ -19,6 +19,7 @@
 
 #include "error/s2n_errno.h"
 
+#include "tls/s2n_alerts.h"
 #include "tls/s2n_cipher_suites.h"
 #include "tls/s2n_connection.h"
 #include "tls/s2n_handshake.h"
@@ -64,7 +65,10 @@ int s2n_flush(struct s2n_connection *conn, s2n_blocked_status * blocked)
         alert.size = 2;
         POSIX_GUARD(s2n_record_write(conn, TLS_ALERT, &alert));
         POSIX_GUARD(s2n_stuffer_rewrite(&conn->reader_alert_out));
-        conn->closing = 1;
+        /* Very hacky -- fix later */
+        if (conn->reader_alert_out.blob.data[1] != S2N_TLS_ALERT_NO_RENEGOTIATION) {
+            conn->closing = 1;
+        }
 
         /* Actually write it ... */
         goto WRITE;

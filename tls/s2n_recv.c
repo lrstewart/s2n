@@ -162,12 +162,12 @@ ssize_t s2n_recv_impl(struct s2n_connection * conn, void *buf, ssize_t size, s2n
             {
                 case TLS_ALERT:
                     POSIX_GUARD(s2n_process_alert_fragment(conn));
-                    POSIX_GUARD(s2n_flush(conn, blocked));
                     break;
                 case TLS_HANDSHAKE:
                     WITH_ERROR_BLINDING(conn, POSIX_GUARD(s2n_post_handshake_recv(conn)));
                     break;
             }
+            POSIX_GUARD(s2n_flush(conn, blocked));
             POSIX_GUARD(s2n_stuffer_wipe(&conn->header_in));
             POSIX_GUARD(s2n_stuffer_wipe(&conn->in));
             conn->in_status = ENCRYPTED;
