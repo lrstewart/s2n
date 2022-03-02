@@ -208,8 +208,11 @@ int main(int argc, char **argv)
         EXPECT_OK(s2n_send_client_hello_request(server_conn));
 
         /* Send some more data */
+        uint8_t output = 0;
+        s2n_blocked_status blocked = 0;
         EXPECT_OK(s2n_test_send_and_recv(server_conn, client_conn));
-        EXPECT_ERROR_WITH_ERRNO(s2n_test_send_and_recv(client_conn, server_conn), S2N_ERR_ALERT);
+        EXPECT_SUCCESS(s2n_send(client_conn, &output, 0, &blocked));
+        EXPECT_FAILURE_WITH_ERRNO(s2n_recv(server_conn, &output, 1, &blocked), S2N_ERR_ALERT);
         EXPECT_EQUAL(s2n_connection_get_alert(server_conn), S2N_TLS_ALERT_NO_RENEGOTIATION);
     }
 
