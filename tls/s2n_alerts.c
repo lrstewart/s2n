@@ -262,6 +262,12 @@ static int s2n_queue_reader_alert(struct s2n_connection *conn, uint8_t level, ui
     return S2N_SUCCESS;
 }
 
+S2N_RESULT s2n_queue_reader_no_renegotiation_alert(struct s2n_connection *conn)
+{
+    RESULT_GUARD_POSIX(s2n_queue_reader_alert(conn, S2N_TLS_ALERT_LEVEL_WARNING, S2N_TLS_ALERT_NO_RENEGOTIATION));
+    return S2N_RESULT_OK;
+}
+
 int s2n_queue_reader_unsupported_protocol_version_alert(struct s2n_connection *conn)
 {
     return s2n_queue_reader_alert(conn, S2N_TLS_ALERT_LEVEL_FATAL, S2N_TLS_ALERT_PROTOCOL_VERSION);

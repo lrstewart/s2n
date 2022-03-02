@@ -15,6 +15,7 @@
 
 #include "api/s2n.h"
 
+#include "tls/s2n_alerts.h"
 #include "tls/s2n_connection.h"
 #include "utils/s2n_safety.h"
 
@@ -36,5 +37,6 @@ int s2n_client_hello_request_recv(struct s2n_connection *conn)
      *# the client if it does not wish to renegotiate a session, or the
      *# client may, if it wishes, respond with a no_renegotiation alert.
      */
+    POSIX_GUARD_RESULT(s2n_queue_reader_no_renegotiation_alert(conn));
     return S2N_SUCCESS;
 }

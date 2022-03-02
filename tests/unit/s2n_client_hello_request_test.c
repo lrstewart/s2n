@@ -34,10 +34,12 @@ static S2N_RESULT s2n_test_send_and_recv(struct s2n_connection *send_conn, struc
 
     const uint8_t send_data[] = "hello world";
     ssize_t send_size = s2n_send(send_conn, send_data, sizeof(send_data), &blocked);
+    RESULT_GUARD_POSIX(send_size);
     RESULT_ENSURE_EQ(send_size, sizeof(send_data));
 
     uint8_t recv_data[sizeof(send_data)] = { 0 };
     ssize_t recv_size = s2n_recv(recv_conn, recv_data, send_size, &blocked);
+    RESULT_GUARD_POSIX(recv_size);
     RESULT_ENSURE_EQ(recv_size, send_size);
     EXPECT_BYTEARRAY_EQUAL(recv_data, send_data, send_size);
 
@@ -78,7 +80,44 @@ int main(int argc, char **argv)
     EXPECT_SUCCESS(s2n_config_set_unsafe_for_testing(config));
     EXPECT_SUCCESS(s2n_config_add_cert_chain_and_key_to_store(config, chain_and_key));
 
-    /* Test: Hello request received during the handshake */
+    DEFER_CLEANUP(struct s2n_config *config_allow_warns = s2n_config_new(), s2n_config_ptr_free);
+    EXPECT_NOT_NULL(config_allow_warns);
+    EXPECT_SUCCESS(s2n_config_set_cipher_preferences(config_allow_warns, "default"));
+    EXPECT_SUCCESS(s2n_config_set_unsafe_for_testing(config_allow_warns));
+    EXPECT_SUCCESS(s2n_config_set_alert_behavior(config_allow_warns, S2N_ALERT_IGNORE_WARNINGS));
+    EXPECT_SUCCESS(s2n_config_add_cert_chain_and_key_to_store(config_allow_warns, chain_and_key));
+
+    /* Test: Hello request ignored during the handshake */
+    {
+        DEFER_CLEANUP(struct s2n_connection *client_conn = s2n_connection_new(S2N_CLIENT),
+                s2n_connection_ptr_free);
+        EXPECT_NOT_NULL(client_conn);
+        EXPECT_SUCCESS(s2n_connection_set_config(client_conn, config_allow_warns));
+
+        DEFER_CLEANUP(struct s2n_connection *server_conn = s2n_connection_new(S2N_SERVER),
+                s2n_connection_ptr_free);
+        EXPECT_NOT_NULL(server_conn);
+        EXPECT_SUCCESS(s2n_connection_set_config(server_conn, config_allow_warns));
+
+        DEFER_CLEANUP(struct s2n_test_io_pair io_pair = { 0 }, s2n_io_pair_close);
+        EXPECT_SUCCESS(s2n_io_pair_init_non_blocking(&io_pair));
+        EXPECT_SUCCESS(s2n_connection_set_io_pair(client_conn, &io_pair));
+        EXPECT_SUCCESS(s2n_connection_set_io_pair(server_conn, &io_pair));
+
+        /* Start the handshake.
+         * We should be able to receive the hello request in the middle of the handshake. */
+        EXPECT_OK(s2n_negotiate_test_server_and_client_until_message(server_conn, client_conn,
+                SERVER_HELLO_DONE));
+        EXPECT_EQUAL(server_conn->server, &server_conn->initial);
+
+        /* Send a hello request */
+        EXPECT_OK(s2n_send_client_hello_request(server_conn));
+
+        /* Successfully complete the handshake */
+        EXPECT_SUCCESS(s2n_negotiate_test_server_and_client(server_conn, client_conn));
+    }
+
+    /* Test: Hello request triggers alert during the handshake */
     {
         DEFER_CLEANUP(struct s2n_connection *client_conn = s2n_connection_new(S2N_CLIENT),
                 s2n_connection_ptr_free);
@@ -105,10 +144,43 @@ int main(int argc, char **argv)
         EXPECT_OK(s2n_send_client_hello_request(server_conn));
 
         /* Successfully complete the handshake */
-        EXPECT_SUCCESS(s2n_negotiate_test_server_and_client(server_conn, client_conn));
+        EXPECT_FAILURE_WITH_ERRNO(s2n_negotiate_test_server_and_client(server_conn, client_conn), S2N_ERR_ALERT);
+        EXPECT_EQUAL(s2n_connection_get_alert(server_conn), S2N_TLS_ALERT_NO_RENEGOTIATION);
     }
 
-    /* Test: Hello request received after the handshake */
+    /* Test: Hello request ignored after the handshake */
+    {
+        DEFER_CLEANUP(struct s2n_connection *client_conn = s2n_connection_new(S2N_CLIENT),
+                s2n_connection_ptr_free);
+        EXPECT_NOT_NULL(client_conn);
+        EXPECT_SUCCESS(s2n_connection_set_config(client_conn, config_allow_warns));
+
+        DEFER_CLEANUP(struct s2n_connection *server_conn = s2n_connection_new(S2N_SERVER),
+                s2n_connection_ptr_free);
+        EXPECT_NOT_NULL(server_conn);
+        EXPECT_SUCCESS(s2n_connection_set_config(server_conn, config_allow_warns));
+
+        DEFER_CLEANUP(struct s2n_test_io_pair io_pair = { 0 }, s2n_io_pair_close);
+        EXPECT_SUCCESS(s2n_io_pair_init_non_blocking(&io_pair));
+        EXPECT_SUCCESS(s2n_connection_set_io_pair(client_conn, &io_pair));
+        EXPECT_SUCCESS(s2n_connection_set_io_pair(server_conn, &io_pair));
+
+        /* Complete the handshake */
+        EXPECT_SUCCESS(s2n_negotiate_test_server_and_client(server_conn, client_conn));
+
+        /* Send some data */
+        EXPECT_OK(s2n_test_send_and_recv(server_conn, client_conn));
+        EXPECT_OK(s2n_test_send_and_recv(client_conn, server_conn));
+
+        /* Send the hello request message. */
+        EXPECT_OK(s2n_send_client_hello_request(server_conn));
+
+        /* Send some more data */
+        EXPECT_OK(s2n_test_send_and_recv(server_conn, client_conn));
+        EXPECT_OK(s2n_test_send_and_recv(client_conn, server_conn));
+    }
+
+    /* Test: Hello request triggers alert after the handshake */
     {
         DEFER_CLEANUP(struct s2n_connection *client_conn = s2n_connection_new(S2N_CLIENT),
                 s2n_connection_ptr_free);
@@ -137,7 +209,8 @@ int main(int argc, char **argv)
 
         /* Send some more data */
         EXPECT_OK(s2n_test_send_and_recv(server_conn, client_conn));
-        EXPECT_OK(s2n_test_send_and_recv(client_conn, server_conn));
+        EXPECT_ERROR_WITH_ERRNO(s2n_test_send_and_recv(client_conn, server_conn), S2N_ERR_ALERT);
+        EXPECT_EQUAL(s2n_connection_get_alert(server_conn), S2N_TLS_ALERT_NO_RENEGOTIATION);
     }
 
     EXPECT_SUCCESS(s2n_cert_chain_and_key_free(chain_and_key));
