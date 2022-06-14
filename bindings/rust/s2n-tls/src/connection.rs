@@ -113,10 +113,6 @@ impl Connection {
         Self { connection }
     }
 
-    pub(crate) fn as_ptr(&mut self) -> *mut s2n_connection {
-        self.connection.as_ptr()
-    }
-
     /// can be used to configure s2n to either use built-in blinding (set blinding
     /// to Blinding::BuiltIn) or self-service blinding (set blinding to
     /// Blinding::SelfService).

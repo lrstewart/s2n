@@ -362,7 +362,7 @@ impl Builder {
         Ok(self.0)
     }
 
-    pub(crate) fn as_mut_ptr(&mut self) -> *mut s2n_config {
+    fn as_mut_ptr(&mut self) -> *mut s2n_config {
         self.0.as_mut_ptr()
     }
 }
