@@ -14,6 +14,8 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+mod quic;
+
 #[derive(Debug, PartialEq)]
 pub struct Config(NonNull<s2n_config>);
 
@@ -364,14 +366,6 @@ impl Builder {
 
     fn as_mut_ptr(&mut self) -> *mut s2n_config {
         self.0.as_mut_ptr()
-    }
-}
-
-#[cfg(feature = "quic")]
-impl Builder {
-    pub fn enable_quic(&mut self) -> Result<&mut Self, Error> {
-        unsafe { s2n_tls_sys::s2n_config_enable_quic(self.as_mut_ptr()).into_result() }?;
-        Ok(self)
     }
 }
 
