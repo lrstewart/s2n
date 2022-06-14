@@ -383,4 +383,14 @@ mod tests {
         assert_eq!(callback.count(), 1);
         Ok(())
     }
+    
+    #[test]
+    #[cfg(feature = "quic")]
+    fn quic() -> Result<(), Error> {
+        let mut conn = crate::connection::Connection::new_server();
+        conn.enable_quic()?;
+        let mut config = Config::builder();
+        config.enable_quic()?;
+        Ok(())
+    }
 }

@@ -113,6 +113,10 @@ impl Connection {
         Self { connection }
     }
 
+    pub(crate) fn as_ptr(&mut self) -> *mut s2n_connection {
+        self.connection.as_ptr()
+    }
+
     /// can be used to configure s2n to either use built-in blinding (set blinding
     /// to Blinding::BuiltIn) or self-service blinding (set blinding to
     /// Blinding::SelfService).
@@ -551,54 +555,6 @@ impl Connection {
 struct Context {
     waker: Option<Waker>,
     pending_callback: Option<Box<dyn AsyncCallback>>,
-}
-
-#[cfg(feature = "quic")]
-impl Connection {
-    pub fn enable_quic(&mut self) -> Result<&mut Self, Error> {
-        unsafe { s2n_connection_enable_quic(self.connection.as_ptr()).into_result() }?;
-        Ok(self)
-    }
-
-    pub fn set_quic_transport_parameters(&mut self, buffer: &[u8]) -> Result<&mut Self, Error> {
-        unsafe {
-            s2n_connection_set_quic_transport_parameters(
-                self.connection.as_ptr(),
-                buffer.as_ptr(),
-                buffer.len().try_into().map_err(|_| Error::InvalidInput)?,
-            )
-            .into_result()
-        }?;
-        Ok(self)
-    }
-
-    pub fn quic_transport_parameters(&mut self) -> Result<&[u8], Error> {
-        let mut ptr = core::ptr::null();
-        let mut len = 0;
-        unsafe {
-            s2n_connection_get_quic_transport_parameters(
-                self.connection.as_ptr(),
-                &mut ptr,
-                &mut len,
-            )
-            .into_result()
-        }?;
-        let buffer = unsafe { core::slice::from_raw_parts(ptr, len as _) };
-        Ok(buffer)
-    }
-
-    /// # Safety
-    ///
-    /// The `context` pointer must live at least as long as the connection
-    pub unsafe fn set_secret_callback(
-        &mut self,
-        callback: s2n_secret_cb,
-        context: *mut c_void,
-    ) -> Result<&mut Self, Error> {
-        s2n_connection_set_secret_callback(self.connection.as_ptr(), callback, context)
-            .into_result()?;
-        Ok(self)
-    }
 }
 
 impl AsRef<Connection> for Connection {
