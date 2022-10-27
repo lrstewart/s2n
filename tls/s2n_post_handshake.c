@@ -56,7 +56,7 @@ static S2N_RESULT s2n_post_handshake_process(struct s2n_connection *conn, struct
             RESULT_GUARD(s2n_tls13_server_nst_recv(conn, in));
             break;
         case TLS_HELLO_REQUEST:
-            RESULT_GUARD_POSIX(s2n_client_hello_request_recv(conn));
+            RESULT_GUARD(s2n_client_hello_request_recv(conn));
             break;
         case TLS_CLIENT_HELLO:
         case TLS_SERVER_HELLO:

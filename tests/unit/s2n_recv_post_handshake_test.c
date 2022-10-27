@@ -137,7 +137,7 @@ S2N_RESULT s2n_test_recv(struct s2n_config *config,
      * by looking at the client's view of the server's sequence number.
      */
     uint64_t seq_num = 0;
-    RESULT_GUARD(s2n_get_seq_num(client_conn->secure.server_sequence_number, &seq_num));
+    RESULT_GUARD(s2n_get_seq_num(client_conn->secure->server_sequence_number, &seq_num));
     /*
      * We should have received one more record than "expected",
      * because we sent and received one ApplicationData record.
@@ -266,7 +266,7 @@ int main(int argc, char **argv)
         uint64_t seq_num = 0;
         EXPECT_FAILURE_WITH_ERRNO(s2n_recv(client_conn, app_data, sizeof(app_data), &blocked), S2N_ERR_IO_BLOCKED);
         EXPECT_EQUAL(blocked, S2N_BLOCKED_ON_READ);
-        EXPECT_OK(s2n_get_seq_num(client_conn->secure.server_sequence_number, &seq_num));
+        EXPECT_OK(s2n_get_seq_num(client_conn->secure->server_sequence_number, &seq_num));
 
         /* One record successfully read, but not a full message yet */
         EXPECT_EQUAL(seq_num, 1 /* 1 handshake */ );
@@ -278,7 +278,7 @@ int main(int argc, char **argv)
 
         EXPECT_EQUAL(s2n_recv(client_conn, app_data, sizeof(app_data), &blocked), sizeof(app_data));
         EXPECT_EQUAL(blocked, S2N_NOT_BLOCKED);
-        EXPECT_OK(s2n_get_seq_num(client_conn->secure.server_sequence_number, &seq_num));
+        EXPECT_OK(s2n_get_seq_num(client_conn->secure->server_sequence_number, &seq_num));
 
         /* Both records read and the message processed */
         EXPECT_EQUAL(seq_num, 3 /* 2 handshake + 1 app data */);
@@ -318,7 +318,7 @@ int main(int argc, char **argv)
             EXPECT_OK(s2n_handshake_parse_header(&messages, &message_type, &message_len));
 
             EXPECT_FAILURE_WITH_ERRNO(s2n_recv(client_conn, app_data, sizeof(app_data), &blocked), S2N_ERR_IO_BLOCKED);
-            EXPECT_OK(s2n_get_seq_num(client_conn->secure.server_sequence_number, &seq_num));
+            EXPECT_OK(s2n_get_seq_num(client_conn->secure->server_sequence_number, &seq_num));
             EXPECT_EQUAL(seq_num, expected_records);
 
             buffer_size = client_conn->post_handshake.in.blob.size;
@@ -335,7 +335,7 @@ int main(int argc, char **argv)
             EXPECT_OK(s2n_test_send_nst_records(server_conn, &messages, expected_records));
 
             EXPECT_FAILURE_WITH_ERRNO(s2n_recv(client_conn, app_data, sizeof(app_data), &blocked), S2N_ERR_IO_BLOCKED);
-            EXPECT_OK(s2n_get_seq_num(client_conn->secure.server_sequence_number, &seq_num));
+            EXPECT_OK(s2n_get_seq_num(client_conn->secure->server_sequence_number, &seq_num));
             EXPECT_EQUAL(seq_num, expected_records * 2);
 
             EXPECT_EQUAL(client_conn->post_handshake.in.blob.size, buffer_size);
@@ -404,7 +404,7 @@ int main(int argc, char **argv)
         uint64_t seq_num = 0;
         uint8_t app_data[1] = { 0 };
         EXPECT_FAILURE_WITH_ERRNO(s2n_recv(client_conn, app_data, sizeof(app_data), &blocked), S2N_ERR_BAD_MESSAGE);
-        EXPECT_OK(s2n_get_seq_num(client_conn->secure.server_sequence_number, &seq_num));
+        EXPECT_OK(s2n_get_seq_num(client_conn->secure->server_sequence_number, &seq_num));
 
         /* The error occurred when processing the unexpected application data record,
          * so we've read both the first handshake record and the application data record. */
