@@ -46,69 +46,56 @@ static int u64cmp (const void * left, const void * right)
    return 0;
 }
 
-/* Generate summary statistics from a list of u64s */
-static void summarize(uint64_t *list, int n, uint64_t *count, uint64_t *avg, uint64_t *median, uint64_t *stddev, uint64_t *variance)
+/*
+ * We are using a simple formula for stddev:
+ * https://www.mathsisfun.com/data/standard-deviation-formulas.html
+ *
+ * variance = (sum( x - avg ) ^ 2) / n
+ * stddev = sqrt(variance)
+ */
+static void summarize(uint64_t *list, int n, uint64_t *max, uint64_t *min, uint64_t *avg,
+        uint64_t *median, uint64_t *stddev, uint64_t *variance)
 {
     qsort(list, n, sizeof(uint64_t), u64cmp);
+    *median = list[ n / 2 ];
 
-    uint64_t p25 = list[ n / 4 ];
-    uint64_t p50 = list[ n / 2 ];
-    uint64_t p75 = list[ n - (n / 4)];
-    uint64_t iqr = p75 - p25;
-
-    /* Use the standard interquartile range rule for outlier detection */
-    int64_t low = p25 - (iqr * 1.5);
-    if (iqr > p25) {
-        low = 0;
-    }
-
-    *avg = low;
-
-    int64_t hi = p75 + (iqr * 1.5);
-    /* Ignore overflow as we have plenty of room at the top */
-
-    *count = 0;
+    /* Calculate mean / avg, max, and min */
     uint64_t sum = 0;
-    uint64_t sum_squares = 0;
-    uint64_t min = 0xFFFFFFFF;
-    uint64_t max = 0;
+    *max = 0;
+    *min = UINT64_MAX;
+    for (size_t i = 0; i < n; i++) {
+        EXPECT_TRUE(sum <= (UINT64_MAX - list[i]));
+        sum += list[i];
 
-    for (int i = 0; i < n; i++) {
-        int64_t value = list[ i ];
-
-        if (value < low || value > hi) {
-            continue;
+        if (list[i] > *max) {
+            *max = list[i];
         }
 
-        (*count)++;
-
-        sum += value;
-        sum_squares += value * value;
-
-        if (value < min) {
-            min = value;
-        }
-        if (value > max) {
-            max = value;
+        if (list[i] < *min) {
+            *min = list[i];
         }
     }
+    *avg = sum / n;
 
-    *variance = sum_squares - (sum * sum);
-    *median = p50;
+    /* Calculate summation for stddev */
+    uint64_t stddev_sum = 0;
+    uint64_t stddev_x = 0;
+    uint64_t stddev_x_sqr = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (list[i] > *avg) {
+            stddev_x = list[i] - *avg;
+        } else {
+            stddev_x = *avg - list[i];
+        }
+        stddev_x_sqr = stddev_x * stddev_x;
+        EXPECT_TRUE(stddev_x == 0 || (stddev_x_sqr / stddev_x) == stddev_x);
+        EXPECT_TRUE(stddev_sum <= (UINT64_MAX - stddev_x_sqr));
+        stddev_sum += stddev_x_sqr;
+    }
 
-    if (*count == 0) {
-        *avg = 0;
-    }
-    else {
-        *avg = sum / *count;
-    }
-
-    if (*count <= 1) {
-        *stddev = 0;
-    }
-    else {
-        *stddev = sqrt((*count * *variance) / (*count * (*count - 1)));
-    }
+    /* Calculate stddev */
+    *variance = stddev_sum / n;
+    *stddev = sqrt(*variance);
 }
 
 inline static uint64_t rdtsc(){
@@ -175,20 +162,8 @@ int main(int argc, char **argv)
             timings[ t ] = (after - before);
         }
 
-        uint64_t good_median, good_avg, good_stddev, good_variance, good_count;
-        summarize(timings, 10001, &good_count, &good_avg, &good_median, &good_stddev, &good_variance);
-
-        for (int t = 0; t < 10001; t++) {
-            EXPECT_SUCCESS(s2n_hmac_init(&check_mac, S2N_HMAC_SHA1, mac_key, sizeof(mac_key)));
-
-            uint64_t before = rdtsc();
-            EXPECT_SUCCESS(s2n_verify_cbc(conn, &check_mac, &decrypted));
-            uint64_t after = rdtsc();
-
-            timings[ t ] = (after - before);
-        }
-
-        summarize(timings, 10001, &good_count, &good_avg, &good_median, &good_stddev, &good_variance);
+        uint64_t good_median, good_max, good_min, good_avg, good_stddev, good_variance;
+        summarize(timings, 10001, &good_max, &good_min, &good_avg, &good_median, &good_stddev, &good_variance);
 
         /* Set up a record so that the MAC fails */
         EXPECT_SUCCESS(s2n_hmac_init(&record_mac, S2N_HMAC_SHA1, mac_key, sizeof(mac_key)));
@@ -219,17 +194,21 @@ int main(int argc, char **argv)
             timings[ t ] = (after - before);
         }
 
-        uint64_t mac_median, mac_avg, mac_stddev, mac_variance, mac_count;
-        summarize(timings, 10001, &mac_count, &mac_avg, &mac_median, &mac_stddev, &mac_variance);
+        uint64_t mac_median, mac_max, mac_min, mac_avg, mac_stddev, mac_variance;
+        summarize(timings, 10001, &mac_max, &mac_min, &mac_avg, &mac_median, &mac_stddev, &mac_variance);
 
         /* Use a simple 3 sigma test for the median distance from the good */
         int64_t lo = good_median - (3 * good_stddev);
         int64_t hi = good_median + (3 * good_stddev);
 
         if ((int64_t) mac_median < lo || (int64_t) mac_median > hi) {
-            printf("\n\nRecord size: %d\nGood Median: %" PRIu64 " (Avg: %" PRIu64 " Stddev: %" PRIu64 ")\n"
-                   "Bad Median: %" PRIu64 " (Avg: %" PRIu64 " Stddev: %" PRIu64 ")\n\n",
-                    i, good_median, good_avg, good_stddev, mac_median, mac_avg, mac_stddev);
+            printf("MAC median %" PRIu64 " is NOT between %" PRIu64 " and %" PRIu64 "\n", mac_median, lo, hi);
+            printf("GOOD SUMMARY | Max: %" PRIu64 " Min: %" PRIu64 " Median: %" PRIu64
+                   " Avg: %" PRIu64 " Var: %" PRIu64 " Stddev: %" PRIu64 "\n",
+                   good_max, good_min, good_median, good_avg, good_variance, good_stddev);
+            printf("MAC SUMMARY | Max: %" PRIu64 " Min: %" PRIu64 " Median: %" PRIu64
+                   " Avg: %" PRIu64 " Var: %" PRIu64 " Stddev: %" PRIu64 "\n",
+                   mac_max, mac_min, mac_median, mac_avg, mac_variance, mac_stddev);
             FAIL();
         }
 
@@ -262,17 +241,21 @@ int main(int argc, char **argv)
             timings[ t ] = (after - before);
         }
 
-        uint64_t pad_median, pad_avg, pad_stddev, pad_variance, pad_count;
-        summarize(timings, 10001, &pad_count, &pad_avg, &pad_median, &pad_stddev, &pad_variance);
+        uint64_t pad_median, pad_max, pad_min, pad_avg, pad_stddev, pad_variance;
+        summarize(timings, 10001, &pad_max, &pad_min, &pad_avg, &pad_median, &pad_stddev, &pad_variance);
 
         /* Use a simple 3 sigma test for the median from the good */
         lo = good_median - (3 * good_stddev);
         hi = good_median + (3 * good_stddev);
 
         if ((int64_t) pad_median < lo || (int64_t) pad_median > hi) {
-            printf("\n\nRecord size: %d\nGood Median: %" PRIu64 " (Avg: %" PRIu64 " Stddev: %" PRIu64 ")\n"
-                   "Bad Median: %" PRIu64 " (Avg: %" PRIu64 " Stddev: %" PRIu64 ")\n\n",
-                    i, good_median, good_avg, good_stddev, pad_median, pad_avg, pad_stddev);
+            printf("PAD median %" PRIu64 " is NOT between %" PRIu64 " and %" PRIu64 "\n", pad_median, lo, hi);
+            printf("GOOD SUMMARY | Max: %" PRIu64 " Min: %" PRIu64 " Median: %" PRIu64
+                   " Avg: %" PRIu64 " Var: %" PRIu64 " Stddev: %" PRIu64 "\n",
+                   good_max, good_min, good_median, good_avg, good_variance, good_stddev);
+            printf("PAD SUMMARY | Max: %" PRIu64 " Min: %" PRIu64 " Median: %" PRIu64
+                   " Avg: %" PRIu64 " Var: %" PRIu64 " Stddev: %" PRIu64 "\n",
+                   pad_max, pad_min, pad_median, pad_avg, pad_variance, pad_stddev);
             FAIL();
         }
 
@@ -283,9 +266,13 @@ int main(int argc, char **argv)
         hi = mac_median + (mac_stddev / 2);
 
         if ((int64_t) pad_median < lo || (int64_t) pad_median > hi) {
-            printf("\n\nRecord size: %d\nMAC Median: %" PRIu64 " (Avg: %" PRIu64 " Stddev: %" PRIu64 ")\n"
-                   "PAD Median: %" PRIu64 " (Avg: %" PRIu64 " Stddev: %" PRIu64 ")\n\n",
-                    i, mac_median, mac_avg, mac_stddev, pad_median, pad_avg, pad_stddev);
+            printf("PAD median %" PRIu64 " is NOT between %" PRIu64 " and %" PRIu64 "\n", pad_median, lo, hi);
+            printf("MAC SUMMARY | Max: %" PRIu64 " Min: %" PRIu64 " Median: %" PRIu64
+                   " Avg: %" PRIu64 " Var: %" PRIu64 " Stddev: %" PRIu64 "\n",
+                   mac_max, mac_min, mac_median, mac_avg, mac_variance, mac_stddev);
+            printf("PAD SUMMARY | Max: %" PRIu64 " Min: %" PRIu64 " Median: %" PRIu64
+                   " Avg: %" PRIu64 " Var: %" PRIu64 " Stddev: %" PRIu64 "\n",
+                   pad_max, pad_min, pad_median, pad_avg, pad_variance, pad_stddev);
             FAIL();
         }
     }
