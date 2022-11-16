@@ -34,11 +34,52 @@
                                 SIZEOF_UINT24   + /* message len */ \
                                 sizeof(uint8_t)   /* message */
 
+bool s2n_post_handshake_is_known(uint8_t message_type);
 int s2n_key_update_write(struct s2n_blob *out);
 
 int main(int argc, char **argv)
 {
     BEGIN_TEST();
+
+    /* Test: s2n_post_handshake_is_known
+     *
+     * Unfortunately, s2n_post_handshake_recv relies on a hardcoded list
+     * to identify known handshake messages not allowed post-handshake.
+     *
+     * This test verifies that list is correct and enforces that we keep it up to date.
+     */
+    {
+        /* We rely on record type being set to identify invalid state machine entries.
+         * Verify that assumption.
+         */
+        EXPECT_NOT_EQUAL(TLS_HANDSHAKE, 0);
+
+        for (size_t i = 0; i < UINT8_MAX; i++) {
+            /* If not a handshake message, ignore */
+            bool known = false;
+            for (size_t j = 0; j < s2n_array_len(state_machine); j++) {
+                if (state_machine[j].record_type != TLS_HANDSHAKE) {
+                    continue;
+                }
+                if (state_machine[j].message_type != i) {
+                    continue;
+                }
+                known = true;
+                break;
+            }
+            for (size_t j = 0; j < s2n_array_len(tls13_state_machine); j++) {
+                if (state_machine[j].record_type != TLS_HANDSHAKE) {
+                    continue;
+                }
+                if (state_machine[j].message_type != i) {
+                    continue;
+                }
+                known = true;
+                break;
+            }
+            EXPECT_EQUAL(known, s2n_post_handshake_is_known(state_machine[i].message_type));
+        }
+    }
 
     /* s2n_post_handshake_recv */
     {   
@@ -176,7 +217,6 @@ int main(int argc, char **argv)
                 EXPECT_SUCCESS(s2n_connection_free(conn));
             }
         }
-
     }
 
     /* post_handshake_send */

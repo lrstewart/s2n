@@ -17,26 +17,11 @@
 
 struct s2n_connection;
 
-enum s2n_post_hs_in_type {
-    S2N_POST_HS_UNKOWN_IN_TYPE = 0,
-    S2N_POST_HS_HEADER_IN,
-    S2N_POST_HS_SKIP_IN,
-    S2N_POST_HS_DYNAMIC_IN,
-    S2N_POST_HS_STATIC_IN,
-};
-
-struct s2n_post_hs_small_msg {
-    uint8_t read;
-    uint8_t bytes[S2N_KEY_UPDATE_MESSAGE_SIZE];
-};
+#define S2N_POST_HANDSHAKE_STATIC_IN_MAX TLS_HANDSHAKE_HEADER_LENGTH
 
 struct s2n_post_handshake {
-    enum s2n_post_hs_in_type type;
-    union {
-        struct s2n_stuffer stuffer;
-        struct s2n_post_hs_small_msg small;
-        uint32_t remaining;
-    } in;
+    struct s2n_stuffer in;
+    uint8_t in_bytes[S2N_POST_HANDSHAKE_STATIC_IN_MAX];
 };
 
 S2N_RESULT s2n_post_handshake_recv(struct s2n_connection *conn);

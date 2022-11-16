@@ -171,7 +171,7 @@ ssize_t s2n_recv_impl(struct s2n_connection * conn, void *buf, ssize_t size, s2n
              * keep a potentially large buffer around unnecessarily.
              */
             if (!s2n_stuffer_is_freed(&conn->post_handshake.in)) {
-                POSIX_GUARD(s2n_stuffer_resize(&conn->post_handshake.in, 0));
+                POSIX_GUARD(s2n_stuffer_free(&conn->post_handshake.in));
             }
         }
 
