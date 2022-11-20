@@ -176,21 +176,22 @@ ssize_t s2n_recv_impl(struct s2n_connection * conn, void *buf, ssize_t size, s2n
         }
 
         if (record_type != TLS_APPLICATION_DATA) {
-            s2n_result result = S2N_RESULT_OK;
             switch (record_type)
             {
                 case TLS_ALERT:
                     POSIX_GUARD(s2n_process_alert_fragment(conn));
                     POSIX_GUARD(s2n_flush(conn, blocked));
                     break;
-                case TLS_HANDSHAKE:
-                    result = s2n_post_handshake_recv(conn);
+                case TLS_HANDSHAKE: {
+                    s2n_result result = s2n_post_handshake_recv(conn);
                     /* Ignore any errors due to insufficient input data from io.
-                     * The next iteration of this loop will attempt to read another record. */
-                    if (!s2n_result_is_ok(result) && s2n_errno != S2N_ERR_IO_BLOCKED) {
+                     * The next iteration of this loop will attempt to read more input data.
+                     */
+                    if (s2n_result_is_error(result) && s2n_errno != S2N_ERR_IO_BLOCKED) {
                         WITH_ERROR_BLINDING(conn, POSIX_GUARD_RESULT(result));
                     }
                     break;
+                }
             }
             POSIX_GUARD(s2n_stuffer_wipe(&conn->header_in));
             POSIX_GUARD(s2n_stuffer_wipe(&conn->in));

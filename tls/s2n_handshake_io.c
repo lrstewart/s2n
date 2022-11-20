@@ -1235,41 +1235,48 @@ static int s2n_handshake_write_io(struct s2n_connection *conn)
     return S2N_SUCCESS;
 }
 
-S2N_RESULT s2n_read_full_handshake_message(struct s2n_connection *conn, struct s2n_stuffer *io, uint8_t *message_type)
+/*
+ * Returns:
+ *  1  - more data is needed to complete the handshake message.
+ *  0  - we read the whole handshake message.
+ * -1  - error processing the handshake message.
+ */
+static int s2n_read_full_handshake_message(struct s2n_connection *conn, uint8_t *message_type)
 {
-    uint32_t current_handshake_data = s2n_stuffer_data_available(io);
+    uint32_t current_handshake_data = s2n_stuffer_data_available(&conn->handshake.io);
     if (current_handshake_data < TLS_HANDSHAKE_HEADER_LENGTH) {
         /* The message may be so badly fragmented that we don't even read the full header, take
          * what we can and then continue to the next record read iteration.
          */
         if (s2n_stuffer_data_available(&conn->in) < (TLS_HANDSHAKE_HEADER_LENGTH - current_handshake_data)) {
-            RESULT_GUARD_POSIX(s2n_stuffer_copy(&conn->in, io, s2n_stuffer_data_available(&conn->in)));
-            RESULT_BAIL(S2N_ERR_IO_BLOCKED);
+            POSIX_GUARD(s2n_stuffer_copy(&conn->in, &conn->handshake.io, s2n_stuffer_data_available(&conn->in)));
+            return 1;
         }
 
         /* Get the remainder of the header */
-        RESULT_GUARD_POSIX(s2n_stuffer_copy(&conn->in, io, (TLS_HANDSHAKE_HEADER_LENGTH - current_handshake_data)));
+        POSIX_GUARD(s2n_stuffer_copy(&conn->in, &conn->handshake.io, (TLS_HANDSHAKE_HEADER_LENGTH - current_handshake_data)));
     }
 
     uint32_t handshake_message_length = 0;
-    RESULT_GUARD(s2n_handshake_parse_header(io, message_type, &handshake_message_length));
+    POSIX_GUARD_RESULT(s2n_handshake_parse_header(&conn->handshake.io, message_type, &handshake_message_length));
 
-    RESULT_ENSURE(handshake_message_length <= S2N_MAXIMUM_HANDSHAKE_MESSAGE_LENGTH, S2N_ERR_BAD_MESSAGE);
+    S2N_ERROR_IF(handshake_message_length > S2N_MAXIMUM_HANDSHAKE_MESSAGE_LENGTH, S2N_ERR_BAD_MESSAGE);
 
-    uint32_t bytes_to_take = handshake_message_length - s2n_stuffer_data_available(io);
+    uint32_t bytes_to_take = handshake_message_length - s2n_stuffer_data_available(&conn->handshake.io);
     bytes_to_take = MIN(bytes_to_take, s2n_stuffer_data_available(&conn->in));
 
     /* If the record is handshake data, add it to the handshake buffer */
-    RESULT_GUARD_POSIX(s2n_stuffer_copy(&conn->in, io, bytes_to_take));
+    POSIX_GUARD(s2n_stuffer_copy(&conn->in, &conn->handshake.io, bytes_to_take));
 
     /* If we have the whole handshake message, then success */
-    if (s2n_stuffer_data_available(io) == handshake_message_length) {
-        return S2N_RESULT_OK;
+    if (s2n_stuffer_data_available(&conn->handshake.io) == handshake_message_length) {
+        return 0;
     }
 
     /* We don't have the whole message, so we'll need to go again */
-    RESULT_GUARD_POSIX(s2n_stuffer_reread(io));
-    RESULT_BAIL(S2N_ERR_IO_BLOCKED);
+    POSIX_GUARD(s2n_stuffer_reread(&conn->handshake.io));
+
+    return 1;
 }
 
 static int s2n_handshake_conn_update_hashes(struct s2n_connection *conn)
@@ -1475,10 +1482,11 @@ static int s2n_handshake_read_io(struct s2n_connection *conn)
     while (s2n_stuffer_data_available(&conn->in)) {
         /* We're done with negotiating but we have trailing data in this record. Bail on the handshake. */
         S2N_ERROR_IF(EXPECTED_RECORD_TYPE(conn) == TLS_APPLICATION_DATA, S2N_ERR_BAD_MESSAGE);
+        int r;
+        POSIX_GUARD((r = s2n_read_full_handshake_message(conn, &message_type)));
 
-        s2n_result r = s2n_read_full_handshake_message(conn, &conn->handshake.io, &message_type);
         /* Do we need more data? This happens for message fragmentation */
-        if (!s2n_result_is_ok(r) && s2n_errno == S2N_ERR_IO_BLOCKED) {
+        if (r == 1) {
             /* Break out of this inner loop, but since we're not changing the state, the
              * outer loop in s2n_handshake_io() will read another record.
              */

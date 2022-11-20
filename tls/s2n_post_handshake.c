@@ -43,13 +43,14 @@ bool s2n_post_handshake_is_known(uint8_t message_type)
         case TLS_CLIENT_KEY:
         case TLS_FINISHED:
         case TLS_SERVER_CERT_STATUS:
+        case TLS_NPN:
             return true;
         default:
             return false;
     }
 }
 
-static bool s2n_post_handshake_is_valid_to_recv(s2n_mode mode, uint8_t message_type)
+bool s2n_post_handshake_is_valid_to_recv(s2n_mode mode, uint8_t message_type)
 {
     switch (message_type) {
         case TLS_SERVER_NEW_SESSION_TICKET:

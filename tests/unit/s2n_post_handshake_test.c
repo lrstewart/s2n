@@ -35,6 +35,7 @@
                                 sizeof(uint8_t)   /* message */
 
 bool s2n_post_handshake_is_known(uint8_t message_type);
+bool s2n_post_handshake_is_valid_to_recv(s2n_mode mode, uint8_t message_type);
 int s2n_key_update_write(struct s2n_blob *out);
 
 int main(int argc, char **argv)
@@ -43,7 +44,7 @@ int main(int argc, char **argv)
 
     /* Test: s2n_post_handshake_is_known
      *
-     * Unfortunately, s2n_post_handshake_recv relies on a hardcoded list
+     * Unfortunately, s2n_post_handshake_is_known relies on a hardcoded list
      * to identify known handshake messages not allowed post-handshake.
      *
      * This test verifies that list is correct and enforces that we keep it up to date.
@@ -55,8 +56,7 @@ int main(int argc, char **argv)
         EXPECT_NOT_EQUAL(TLS_HANDSHAKE, 0);
 
         for (size_t i = 0; i < UINT8_MAX; i++) {
-            /* If not a handshake message, ignore */
-            bool known = false;
+            bool is_handshake_message = false;
             for (size_t j = 0; j < s2n_array_len(state_machine); j++) {
                 if (state_machine[j].record_type != TLS_HANDSHAKE) {
                     continue;
@@ -64,20 +64,36 @@ int main(int argc, char **argv)
                 if (state_machine[j].message_type != i) {
                     continue;
                 }
-                known = true;
+                is_handshake_message = true;
                 break;
             }
             for (size_t j = 0; j < s2n_array_len(tls13_state_machine); j++) {
-                if (state_machine[j].record_type != TLS_HANDSHAKE) {
+                if (tls13_state_machine[j].record_type != TLS_HANDSHAKE) {
                     continue;
                 }
-                if (state_machine[j].message_type != i) {
+                if (tls13_state_machine[j].message_type != i) {
                     continue;
                 }
-                known = true;
+                is_handshake_message = true;
                 break;
             }
-            EXPECT_EQUAL(known, s2n_post_handshake_is_known(state_machine[i].message_type));
+
+            bool is_valid_to_receive = s2n_post_handshake_is_valid_to_recv(S2N_CLIENT, i)
+                    || s2n_post_handshake_is_valid_to_recv(S2N_SERVER, i);
+            bool is_post_handshake_message = is_valid_to_receive && s2n_post_handshake_is_known(i);
+
+            /* We should have no overlap between handshake and post-handshake messages.
+             *
+             * The only exception is TLS_SERVER_NEW_SESSION_TICKET, which is a handshake
+             * message in TLS1.2 and a post-handshake message in TLS1.3.
+             */
+            if (i != TLS_SERVER_NEW_SESSION_TICKET) {
+                EXPECT_FALSE(is_handshake_message && is_post_handshake_message);
+            }
+
+            /* All handshake messages must be included in the list in s2n_post_handshake_is_known */
+            bool is_known = is_handshake_message || is_post_handshake_message;
+            EXPECT_EQUAL(is_known, s2n_post_handshake_is_known(i));
         }
     }
 
