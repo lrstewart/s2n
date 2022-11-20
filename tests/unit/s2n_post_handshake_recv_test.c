@@ -59,24 +59,6 @@ static int s2n_hello_request_cb(struct s2n_connection *conn, void *ctx, s2n_rene
     return S2N_SUCCESS;
 }
 
-static S2N_RESULT s2n_test_enable_tickets(struct s2n_config *config)
-{
-    RESULT_ENSURE_REF(config);
-
-    uint8_t ticket_key_name[16] = "key name";
-    uint8_t ticket_key[] = "key data";
-
-    uint64_t current_time = 0;
-    RESULT_GUARD_POSIX(config->wall_clock(config->sys_clock_ctx, &current_time));
-
-    RESULT_GUARD_POSIX(s2n_config_set_session_tickets_onoff(config, 1));
-    RESULT_GUARD_POSIX(s2n_config_add_ticket_crypto_key(config, ticket_key_name, strlen((char *)ticket_key_name),
-                    ticket_key, sizeof(ticket_key), current_time/ONE_SEC_IN_NANOS));
-    config->initial_tickets_to_send = 0;
-
-    return S2N_RESULT_OK;
-}
-
 static S2N_RESULT s2n_test_send_records(struct s2n_connection *conn, struct s2n_stuffer *messages, uint32_t fragment_size)
 {
     conn->max_outgoing_fragment_length = fragment_size;
@@ -98,7 +80,12 @@ static S2N_RESULT s2n_test_send_records(struct s2n_connection *conn, struct s2n_
     return S2N_RESULT_OK;
 }
 
-static S2N_RESULT s2n_test_recv(struct s2n_connection *sender, struct s2n_connection *receiver)
+/*
+ * Verify that the receiver can receive a byte sent by the sender.
+ * In the process, we also verify that the receiver can receiver all previous
+ * data sent by the sender, since TCP / TLS messages have a guaranteed order.
+ */
+static S2N_RESULT s2n_test_basic_recv(struct s2n_connection *sender, struct s2n_connection *receiver)
 {
     uint8_t app_data[1] = { 0 };
     s2n_blocked_status blocked = S2N_NOT_BLOCKED;
@@ -119,6 +106,65 @@ static S2N_RESULT s2n_test_recv(struct s2n_connection *sender, struct s2n_connec
     return S2N_RESULT_OK;
 }
 
+/* Like s2n_test_basic_recv,
+ * but we make only one byte of data available at a time.
+ * This forces us to call s2n_recv repeatedly and verifies that s2n_recv
+ * can resume across s2n_recv calls while handling fragmented post-handshake messages.
+ */
+static S2N_RESULT s2n_test_blocking_recv(struct s2n_connection *sender, struct s2n_connection *receiver,
+        struct s2n_test_io_stuffer_pair *io_pair)
+{
+    uint8_t app_data[1] = { 0 };
+    s2n_blocked_status blocked = S2N_NOT_BLOCKED;
+
+    int send_ret = s2n_send(sender, app_data, sizeof(app_data), &blocked);
+    RESULT_GUARD_POSIX(send_ret);
+    RESULT_ENSURE_EQ(send_ret, sizeof(app_data));
+
+    /* Reset all counters */
+    mallocs_count = 0;
+    tickets_count = 0;
+    hello_request_count = 0;
+
+    /* Modify the stuffer's write_cursor to make only one byte
+     * of the socket / input data available at a time.
+     */
+    struct s2n_stuffer *in = &io_pair->client_in;
+    if (receiver->mode == S2N_SERVER) {
+        in = &io_pair->server_in;
+    }
+    uint32_t *write_cursor = &in->write_cursor;
+    uint32_t *read_cursor = &in->read_cursor;
+    RESULT_ENSURE_GT(write_cursor, read_cursor);
+    uint32_t saved_write_cursor = *write_cursor;
+    RESULT_ENSURE_GT(saved_write_cursor, 0);
+    *write_cursor = *read_cursor + 1;
+
+    while (s2n_recv(receiver, app_data, sizeof(app_data), &blocked) < 0) {
+        EXPECT_EQUAL(blocked, S2N_BLOCKED_ON_READ);
+        EXPECT_EQUAL(s2n_errno, S2N_ERR_IO_BLOCKED);
+        (*write_cursor)++;
+        RESULT_ENSURE_LTE(*write_cursor, saved_write_cursor);
+    }
+    RESULT_ENSURE_EQ(*write_cursor, saved_write_cursor);
+
+    return S2N_RESULT_OK;
+}
+
+static S2N_RESULT s2n_test_recv(struct s2n_connection *sender, struct s2n_connection *receiver,
+        uint32_t fragment_size, struct s2n_stuffer *messages, struct s2n_test_io_stuffer_pair *io_pair)
+{
+    RESULT_GUARD(s2n_test_send_records(sender, messages, fragment_size));
+    RESULT_GUARD(s2n_test_basic_recv(sender, receiver));
+
+    RESULT_GUARD_POSIX(s2n_stuffer_reread(messages));
+
+    RESULT_GUARD(s2n_test_send_records(sender, messages, fragment_size));
+    RESULT_GUARD(s2n_test_blocking_recv(sender, receiver, io_pair));
+
+    return S2N_RESULT_OK;
+}
+
 static S2N_RESULT s2n_test_init_sender_and_receiver(struct s2n_config *config,
         struct s2n_connection *sender, struct s2n_connection *receiver,
         struct s2n_test_io_stuffer_pair *io_pair)
@@ -133,13 +179,15 @@ static S2N_RESULT s2n_test_init_sender_and_receiver(struct s2n_config *config,
     RESULT_GUARD(s2n_connection_set_secrets(receiver));
     RESULT_GUARD_POSIX(s2n_connection_set_blinding(receiver, S2N_SELF_SERVICE_BLINDING));
 
-    if (io_pair) {
-        RESULT_GUARD(s2n_io_stuffer_pair_init(io_pair));
+    RESULT_GUARD(s2n_io_stuffer_pair_init(io_pair));
+    if (sender->mode == S2N_SERVER) {
+        RESULT_GUARD(s2n_connections_set_io_stuffer_pair(receiver, sender, io_pair));
+    } else {
         RESULT_GUARD(s2n_connections_set_io_stuffer_pair(sender, receiver, io_pair));
     }
 
     /* Send and receive to initialize io buffers */
-    EXPECT_OK(s2n_test_recv(sender, receiver));
+    EXPECT_OK(s2n_test_basic_recv(sender, receiver));
 
     return S2N_RESULT_OK;
 }
@@ -148,29 +196,42 @@ int main(int argc, char **argv)
 {
     BEGIN_TEST();
 
+    /* Some tests need to make assertions about whether or not memory was allocated.
+     * Override the current memory callback with one that counts allocations.
+     */
     original_malloc_callback = s2n_mem_malloc_cb;
     s2n_mem_malloc_cb = s2n_count_mallocs_cb;
 
     const uint8_t unknown_message_type = UINT8_MAX;
     EXPECT_FALSE(s2n_post_handshake_is_known(unknown_message_type));
-    const uint32_t test_message_sizes[] = { 0, 1, 2, 3001 };
+    const uint32_t test_large_message_size = 3001;
 
     DEFER_CLEANUP(struct s2n_config *config = s2n_config_new(), s2n_config_ptr_free);
-    EXPECT_OK(s2n_test_enable_tickets(config));
     EXPECT_SUCCESS(s2n_config_set_cipher_preferences(config, "default_tls13"));
     EXPECT_SUCCESS(s2n_config_set_session_ticket_cb(config, s2n_ticket_count_cb, NULL));
     EXPECT_SUCCESS(s2n_config_set_renegotiate_request_cb(config, s2n_hello_request_cb, NULL));
 
-    uint32_t fragment_sizes[] = {
+    /* Some tests require sending and receiving tickets.
+     * Setup the config to handle tickets, but don't send any by default.
+     */
+    uint8_t ticket_key_name[16] = "key name";
+    uint8_t ticket_key[] = "key data";
+    uint64_t current_time = 0;
+    EXPECT_SUCCESS(config->wall_clock(config->sys_clock_ctx, &current_time));
+    EXPECT_SUCCESS(s2n_config_set_session_tickets_onoff(config, 1));
+    EXPECT_SUCCESS(s2n_config_add_ticket_crypto_key(config, ticket_key_name, sizeof(ticket_key_name),
+            ticket_key, sizeof(ticket_key), current_time/ONE_SEC_IN_NANOS));
+    config->initial_tickets_to_send = 0;
+
+    const uint32_t fragment_sizes[] = {
         S2N_MAX_FRAGMENT_LENGTH_MIN,
         TLS_HANDSHAKE_HEADER_LENGTH,
-        S2N_POST_HANDSHAKE_STATIC_IN_MAX,
-        S2N_POST_HANDSHAKE_STATIC_IN_MAX + 1,
+        TLS_HANDSHAKE_HEADER_LENGTH + 1,
         S2N_DEFAULT_FRAGMENT_LENGTH,
         S2N_TLS_MAXIMUM_FRAGMENT_LENGTH,
     };
-
-    uint8_t modes[] = { S2N_CLIENT, S2N_SERVER };
+    const uint8_t modes[] = { S2N_CLIENT, S2N_SERVER };
+    const uint32_t test_message_sizes[] = { 0, 1, 2, test_large_message_size };
 
     /* Test: client and server receive small post-handshake messages (KeyUpdates) */
     for (size_t frag_i = 0; frag_i < s2n_array_len(fragment_sizes); frag_i++) {
@@ -208,12 +269,16 @@ int main(int argc, char **argv)
              * if we successfully decrypt all records. If they were not processed,
              * then we would try to use the wrong key to decrypt the next record.
              */
-            EXPECT_OK(s2n_test_recv(sender, receiver));
+            EXPECT_OK(s2n_test_basic_recv(sender, receiver));
             EXPECT_EQUAL(mallocs_count, 0);
         }
     }
 
-    /* Test client receives large post-handshake messages (NewSessionTickets) */
+    /* Test: client receives large post-handshake messages (NewSessionTickets)
+     *
+     * There is no server version of this test because there are no large post-handshake messages
+     * valid for the server to accept.
+     */
     {
         size_t min_allocs = SIZE_MAX;
         size_t max_allocs = 0;
@@ -226,16 +291,15 @@ int main(int argc, char **argv)
             DEFER_CLEANUP(struct s2n_test_io_stuffer_pair io_pair = { 0 }, s2n_io_stuffer_pair_free);
             EXPECT_OK(s2n_test_init_sender_and_receiver(config, server, client, &io_pair));
 
-            /* Send NewSessionTicket records */
+            /* Write NewSessionTicket records */
             DEFER_CLEANUP(struct s2n_stuffer messages = { 0 }, s2n_stuffer_free);
             EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&messages, 0));
             for (size_t i = 0; i < S2N_TEST_MESSAGE_COUNT; i++) {
                 server->tickets_to_send++;
                 EXPECT_OK(s2n_tls13_server_nst_write(server, &messages));
             }
-            EXPECT_OK(s2n_test_send_records(server, &messages, fragment_size));
 
-            EXPECT_OK(s2n_test_recv(server, client));
+            EXPECT_OK(s2n_test_recv(server, client, fragment_size, &messages, &io_pair));
             EXPECT_EQUAL(tickets_count, S2N_TEST_MESSAGE_COUNT);
 
             if (mallocs_count < min_allocs) {
@@ -246,11 +310,21 @@ int main(int argc, char **argv)
             }
         }
 
+        /* The exact number of allocations depends on the implementation of NewSessionTicket,
+         * which has to allocate memory for keys and tickets.
+         *
+         * However, we can assert that fragmentation adds only 1 extra allocation for the
+         * buffer we use to reconstruct the message.
+         */
         EXPECT_TRUE(min_allocs >= S2N_TEST_MESSAGE_COUNT);
         EXPECT_EQUAL(min_allocs + 1, max_allocs);
     }
 
-    /* Test client receives large post-handshake messages of different sizes (NewSessionTickets) */
+    /* Test: client receives large post-handshake messages of different sizes (NewSessionTickets)
+     *
+     * There is no server version of this test because there are no large post-handshake messages
+     * valid for the server to accept.
+     */
     {
         size_t min_allocs = SIZE_MAX;
         size_t max_allocs = 0;
@@ -267,7 +341,7 @@ int main(int argc, char **argv)
             size_t total_size = 0;
             DEFER_CLEANUP(struct s2n_stuffer messages = { 0 }, s2n_stuffer_free);
             EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&messages, 0));
-            for (size_t i = 0; i < 2; i++) {
+            for (size_t i = 0; i < 3; i++) {
                 /* Write a basic NewSessionTicket */
                 server->server_max_early_data_size_overridden = false;
                 server->tickets_to_send++;
@@ -287,8 +361,7 @@ int main(int argc, char **argv)
                 total_size += max_length;
             }
 
-            EXPECT_OK(s2n_test_send_records(server, &messages, fragment_size));
-            EXPECT_OK(s2n_test_recv(server, client));
+            EXPECT_OK(s2n_test_recv(server, client, fragment_size, &messages, &io_pair));
             EXPECT_EQUAL(tickets_count, server->tickets_to_send);
 
             if (mallocs_count < min_allocs) {
@@ -299,12 +372,79 @@ int main(int argc, char **argv)
             }
         }
 
+        /* The exact number of allocations depends on the implementation of NewSessionTicket,
+         * which has to allocate memory for keys and tickets.
+         *
+         * However, we can assert that fragmentation adds two extra allocations:
+         * one for the initial buffer needed to reconstruct the first, smaller message,
+         * and one for the resized buffer to reconstruct the second, larger message.
+         * The remaining fragmented messages should not trigger any more allocations.
+         */
         EXPECT_TRUE(min_allocs > 0);
-        /* 1 for the first alloc, 1 for the larger realloc */
         EXPECT_EQUAL(min_allocs + 2, max_allocs);
     }
 
-    /* Test: client receives empty post-handshake message (HelloRequests) */
+    /* Test: server rejects known, invalid post-handshake messages (NewSessionTickets)
+     *
+     * There is no client version of this test because the client accepts all supported
+     * post-handshake messages.
+     */
+    for (size_t frag_i = 0; frag_i < s2n_array_len(fragment_sizes); frag_i++) {
+        uint32_t fragment_size = fragment_sizes[frag_i];
+
+        DEFER_CLEANUP(struct s2n_connection *server = s2n_connection_new(S2N_SERVER), s2n_connection_ptr_free);
+        DEFER_CLEANUP(struct s2n_connection *client = s2n_connection_new(S2N_CLIENT), s2n_connection_ptr_free);
+        DEFER_CLEANUP(struct s2n_test_io_stuffer_pair io_pair = { 0 }, s2n_io_stuffer_pair_free);
+        EXPECT_OK(s2n_test_init_sender_and_receiver(config, client, server, &io_pair));
+
+        /* Send NewSessionTicket record */
+        DEFER_CLEANUP(struct s2n_stuffer messages = { 0 }, s2n_stuffer_free);
+        EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&messages, 0));
+        client->tickets_to_send = 1;
+        EXPECT_OK(s2n_tls13_server_nst_write(client, &messages));
+        EXPECT_OK(s2n_test_send_records(client, &messages, fragment_size));
+
+        EXPECT_ERROR_WITH_ERRNO(s2n_test_basic_recv(client, server), S2N_ERR_BAD_MESSAGE);
+        EXPECT_EQUAL(tickets_count, 0);
+        EXPECT_EQUAL(mallocs_count, 0);
+    }
+
+    /* Test: server rejects fragmented post-handshake message (KeyUpdate) with an invalid size
+     *
+     * This response is unique to the server because we want to prevent a malicious
+     * client from forcing the server to allocate large amounts of memory.
+     *
+     * While we could extend the same validation to the client, the client accepts
+     * a variable-sized message (NewSessionTicket) so can't really be protected.
+     */
+    {
+        /* This test is only interesting if the message is fragmented */
+        uint32_t fragment_size = 2;
+
+        DEFER_CLEANUP(struct s2n_connection *server = s2n_connection_new(S2N_SERVER), s2n_connection_ptr_free);
+        DEFER_CLEANUP(struct s2n_connection *client = s2n_connection_new(S2N_CLIENT), s2n_connection_ptr_free);
+        DEFER_CLEANUP(struct s2n_test_io_stuffer_pair io_pair = { 0 }, s2n_io_stuffer_pair_free);
+        EXPECT_OK(s2n_test_init_sender_and_receiver(config, client, server, &io_pair));
+
+        /* Write large KeyUpdate record */
+        DEFER_CLEANUP(struct s2n_stuffer message = { 0 }, s2n_stuffer_free);
+        EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&message, 0));
+        EXPECT_SUCCESS(s2n_stuffer_write_uint8(&message, TLS_KEY_UPDATE));
+        EXPECT_SUCCESS(s2n_stuffer_write_uint24(&message, test_large_message_size));
+        EXPECT_SUCCESS(s2n_stuffer_skip_write(&message, test_large_message_size));
+        EXPECT_OK(s2n_test_send_records(client, &message, fragment_size));
+        EXPECT_SUCCESS(s2n_update_application_traffic_keys(client, client->mode, SENDING));
+
+        EXPECT_ERROR_WITH_ERRNO(s2n_test_basic_recv(client, server), S2N_ERR_BAD_MESSAGE);
+        /* No post-handshake message should trigger the server to allocate memory */
+        EXPECT_EQUAL(mallocs_count, 0);
+    }
+
+    /* Test: client receives empty post-handshake messages (HelloRequests)
+     *
+     * There is no server version of this test because there are no empty post-handshake messages
+     * valid for the server to accept.
+     */
     for (size_t frag_i = 0; frag_i < s2n_array_len(fragment_sizes); frag_i++) {
         uint32_t fragment_size = fragment_sizes[frag_i];
 
@@ -316,40 +456,16 @@ int main(int argc, char **argv)
         /* HelloRequests are ignored if secure_renegotiation isn't set */
         client->secure_renegotiation = true;
 
-        /* Send HelloRequest records */
+        /* Write HelloRequest records */
         DEFER_CLEANUP(struct s2n_stuffer messages = { 0 }, s2n_stuffer_free);
         EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&messages, 0));
         for (size_t i = 0; i < S2N_TEST_MESSAGE_COUNT; i++) {
             EXPECT_SUCCESS(s2n_stuffer_write_uint8(&messages, TLS_HELLO_REQUEST));
             EXPECT_SUCCESS(s2n_stuffer_write_uint24(&messages, 0));
         }
-        EXPECT_OK(s2n_test_send_records(server, &messages, fragment_size));
 
-        EXPECT_OK(s2n_test_recv(server, client));
+        EXPECT_OK(s2n_test_recv(server, client, fragment_size, &messages, &io_pair));
         EXPECT_EQUAL(hello_request_count, S2N_TEST_MESSAGE_COUNT);
-        EXPECT_EQUAL(mallocs_count, 0);
-    }
-
-    /* Test: server rejects known, invalid post-handshake messages (NewSessionTickets) */
-    for (size_t frag_i = 0; frag_i < s2n_array_len(fragment_sizes); frag_i++) {
-        uint32_t fragment_size = fragment_sizes[frag_i];
-
-        DEFER_CLEANUP(struct s2n_connection *server = s2n_connection_new(S2N_SERVER), s2n_connection_ptr_free);
-        DEFER_CLEANUP(struct s2n_connection *client = s2n_connection_new(S2N_CLIENT), s2n_connection_ptr_free);
-        DEFER_CLEANUP(struct s2n_test_io_stuffer_pair io_pair = { 0 }, s2n_io_stuffer_pair_free);
-        EXPECT_OK(s2n_test_init_sender_and_receiver(config, client, server, &io_pair));
-
-        /* Send NewSessionTicket records */
-        DEFER_CLEANUP(struct s2n_stuffer messages = { 0 }, s2n_stuffer_free);
-        EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&messages, 0));
-        for (size_t i = 0; i < S2N_TEST_MESSAGE_COUNT; i++) {
-            client->tickets_to_send++;
-            EXPECT_OK(s2n_tls13_server_nst_write(client, &messages));
-        }
-        EXPECT_OK(s2n_test_send_records(client, &messages, fragment_size));
-
-        EXPECT_ERROR_WITH_ERRNO(s2n_test_recv(client, server), S2N_ERR_BAD_MESSAGE);
-        EXPECT_EQUAL(tickets_count, 0);
         EXPECT_EQUAL(mallocs_count, 0);
     }
 
@@ -366,16 +482,15 @@ int main(int argc, char **argv)
             EXPECT_OK(s2n_test_init_sender_and_receiver(config, sender, receiver, &io_pair));
 
             /* Send fake ClientHello records */
-            DEFER_CLEANUP(struct s2n_stuffer messages = { 0 }, s2n_stuffer_free);
-            EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&messages, 0));
-            for (size_t i = 0; i < s2n_array_len(test_message_sizes); i++) {
-                EXPECT_SUCCESS(s2n_stuffer_write_uint8(&messages, TLS_CLIENT_HELLO));
-                EXPECT_SUCCESS(s2n_stuffer_write_uint24(&messages, test_message_sizes[i]));
-                EXPECT_SUCCESS(s2n_stuffer_skip_write(&messages, test_message_sizes[i]));
-            }
-            EXPECT_OK(s2n_test_send_records(sender, &messages, fragment_size));
+            DEFER_CLEANUP(struct s2n_stuffer message = { 0 }, s2n_stuffer_free);
+            EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&message, TLS_HANDSHAKE_HEADER_LENGTH));
+            EXPECT_SUCCESS(s2n_stuffer_write_uint8(&message, TLS_CLIENT_HELLO));
+            EXPECT_SUCCESS(s2n_stuffer_write_uint24(&message, test_large_message_size));
+            EXPECT_SUCCESS(s2n_stuffer_skip_write(&message, test_large_message_size));
+            EXPECT_OK(s2n_test_send_records(sender, &message, fragment_size));
 
-            EXPECT_ERROR_WITH_ERRNO(s2n_test_recv(sender, receiver), S2N_ERR_BAD_MESSAGE);
+            EXPECT_ERROR_WITH_ERRNO(s2n_test_basic_recv(sender, receiver), S2N_ERR_BAD_MESSAGE);
+            /* No memory should be allocated. We don't need to parse the message. */
             EXPECT_EQUAL(mallocs_count, 0);
         }
     }
@@ -392,7 +507,7 @@ int main(int argc, char **argv)
             DEFER_CLEANUP(struct s2n_test_io_stuffer_pair io_pair = { 0 }, s2n_io_stuffer_pair_free);
             EXPECT_OK(s2n_test_init_sender_and_receiver(config, sender, receiver, &io_pair));
 
-            /* Send unknown records */
+            /* Write unknown records */
             DEFER_CLEANUP(struct s2n_stuffer messages = { 0 }, s2n_stuffer_free);
             EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&messages, 0));
             for (size_t i = 0; i < s2n_array_len(test_message_sizes); i++) {
@@ -400,87 +515,10 @@ int main(int argc, char **argv)
                 EXPECT_SUCCESS(s2n_stuffer_write_uint24(&messages, test_message_sizes[i]));
                 EXPECT_SUCCESS(s2n_stuffer_skip_write(&messages, test_message_sizes[i]));
             }
-            EXPECT_OK(s2n_test_send_records(sender, &messages, fragment_size));
 
-            EXPECT_OK(s2n_test_recv(sender, receiver));
+            EXPECT_OK(s2n_test_recv(sender, receiver, fragment_size, &messages, &io_pair));
+            /* No memory should be allocated. We don't need to parse the message. */
             EXPECT_EQUAL(mallocs_count, 0);
-        }
-    }
-
-    /* Test server can resume after S2N_ERR_IO_BLOCKED */
-    for (size_t frag_i = 0; frag_i < s2n_array_len(fragment_sizes); frag_i++) {
-        uint32_t fragment_size = fragment_sizes[frag_i];
-
-        DEFER_CLEANUP(struct s2n_connection *client = s2n_connection_new(S2N_CLIENT), s2n_connection_ptr_free);
-        DEFER_CLEANUP(struct s2n_connection *server = s2n_connection_new(S2N_SERVER), s2n_connection_ptr_free);
-        DEFER_CLEANUP(struct s2n_test_io_stuffer_pair io_pair = { 0 }, s2n_io_stuffer_pair_free);
-        EXPECT_OK(s2n_test_init_sender_and_receiver(config, server, client, &io_pair));
-
-        /* Send test records */
-        DEFER_CLEANUP(struct s2n_stuffer messages = { 0 }, s2n_stuffer_free);
-        EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&messages, 0));
-        for (size_t i = 0; i < S2N_TEST_MESSAGE_COUNT; i++) {
-            server->tickets_to_send++;
-            EXPECT_OK(s2n_tls13_server_nst_write(server, &messages));
-        }
-        EXPECT_OK(s2n_test_send_records(server, &messages, fragment_size));
-
-        uint8_t app_data[1] = { 0 };
-        s2n_blocked_status blocked = S2N_NOT_BLOCKED;
-
-        EXPECT_EQUAL(s2n_send(server, app_data, 1, &blocked), 1);
-
-        uint32_t *write_cursor = &io_pair.client_in.write_cursor;
-        uint32_t saved_write_cursor = *write_cursor;
-        *write_cursor = 1;
-
-        tickets_count = 0;
-        while (s2n_recv(client, app_data, 1, &blocked) != 1) {
-            EXPECT_EQUAL(blocked, S2N_BLOCKED_ON_READ);
-            EXPECT_EQUAL(s2n_errno, S2N_ERR_IO_BLOCKED);
-            (*write_cursor)++;
-            EXPECT_TRUE(*write_cursor <= saved_write_cursor);
-        }
-        EXPECT_EQUAL(tickets_count, S2N_TEST_MESSAGE_COUNT);
-    }
-
-    /* Test client and server can resume after S2N_ERR_IO_BLOCKED when ignoring an unknown message */
-    for (size_t frag_i = 0; frag_i < s2n_array_len(fragment_sizes); frag_i++) {
-        uint32_t fragment_size = fragment_sizes[frag_i];
-
-        for (size_t mode_i = 0; mode_i < s2n_array_len(modes); mode_i++) {
-            uint8_t mode = modes[mode_i];
-
-            DEFER_CLEANUP(struct s2n_connection *receiver = s2n_connection_new(mode), s2n_connection_ptr_free);
-            DEFER_CLEANUP(struct s2n_connection *sender = s2n_connection_new(S2N_PEER_MODE(mode)), s2n_connection_ptr_free);
-            DEFER_CLEANUP(struct s2n_test_io_stuffer_pair io_pair = { 0 }, s2n_io_stuffer_pair_free);
-            EXPECT_OK(s2n_test_init_sender_and_receiver(config, sender, receiver, &io_pair));
-
-            /* Send test records */
-            DEFER_CLEANUP(struct s2n_stuffer messages = { 0 }, s2n_stuffer_free);
-            EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&messages, 0));
-            for (size_t i = 0; i < S2N_TEST_MESSAGE_COUNT; i++) {
-                EXPECT_SUCCESS(s2n_stuffer_write_uint8(&messages, unknown_message_type));
-                EXPECT_SUCCESS(s2n_stuffer_write_uint24(&messages, test_message_sizes[i]));
-                EXPECT_SUCCESS(s2n_stuffer_skip_write(&messages, test_message_sizes[i]));
-            }
-            EXPECT_OK(s2n_test_send_records(sender, &messages, fragment_size));
-
-            uint8_t app_data[1] = { 0 };
-            s2n_blocked_status blocked = S2N_NOT_BLOCKED;
-
-            EXPECT_EQUAL(s2n_send(sender, app_data, 1, &blocked), 1);
-
-            uint32_t *write_cursor = &io_pair.client_in.write_cursor;
-            uint32_t saved_write_cursor = *write_cursor;
-            *write_cursor = 1;
-
-            while (s2n_recv(receiver, app_data, 1, &blocked) != 1) {
-                EXPECT_EQUAL(blocked, S2N_BLOCKED_ON_READ);
-                EXPECT_EQUAL(s2n_errno, S2N_ERR_IO_BLOCKED);
-                (*write_cursor)++;
-                EXPECT_TRUE(*write_cursor <= saved_write_cursor);
-            }
         }
     }
 

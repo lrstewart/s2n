@@ -17,11 +17,9 @@
 
 struct s2n_connection;
 
-#define S2N_POST_HANDSHAKE_STATIC_IN_MAX TLS_HANDSHAKE_HEADER_LENGTH
-
 struct s2n_post_handshake {
     struct s2n_stuffer in;
-    uint8_t in_bytes[S2N_POST_HANDSHAKE_STATIC_IN_MAX];
+    uint8_t in_bytes[TLS_HANDSHAKE_HEADER_LENGTH];
 };
 
 S2N_RESULT s2n_post_handshake_recv(struct s2n_connection *conn);

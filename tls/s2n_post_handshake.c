@@ -22,6 +22,9 @@
 #include "tls/s2n_tls.h"
 #include "utils/s2n_safety.h"
 
+/* Check if a handshake message is supported by s2n-tls,
+ * but not as a post-handshake message.
+ */
 bool s2n_post_handshake_is_known(uint8_t message_type)
 {
     switch (message_type) {
@@ -130,7 +133,7 @@ S2N_RESULT s2n_post_handshake_message_recv(struct s2n_connection *conn)
     }
 
     /* Skip unknown message types.
-     * If we can't parse a message, there's no reason to actually read and store it.
+     * If we can't parse a message, there's no reason to actually allocate memory to store it.
      */
     if (!s2n_post_handshake_is_known(message_type)) {
         uint32_t to_skip = MIN(s2n_stuffer_data_available(in), message_len);
@@ -148,10 +151,11 @@ S2N_RESULT s2n_post_handshake_message_recv(struct s2n_connection *conn)
 
     /* If insufficient buffer space, resize */
     if (s2n_stuffer_space_remaining(message) < message_len) {
-        /* We want to avoid servers resizing in response to post-handshake messages
+        /* We want to avoid servers allocating memory in response to post-handshake messages
          * to avoid a potential DDOS / resource exhaustion attack.
-         * A server needs to worry more about malicious clients
-         * than a client needs to worry about a malicious server.
+         *
+         * Currently, s2n-tls servers only support the KeyUpdate message,
+         * which should never require additional memory to parse.
          */
         RESULT_ENSURE(conn->mode == S2N_CLIENT, S2N_ERR_BAD_MESSAGE);
 
@@ -159,6 +163,7 @@ S2N_RESULT s2n_post_handshake_message_recv(struct s2n_connection *conn)
         if (message->alloced) {
             RESULT_GUARD_POSIX(s2n_stuffer_resize(message, total_size));
         } else {
+            /* Manually convert our static stuffer to a growable stuffer */
             RESULT_GUARD_POSIX(s2n_stuffer_growable_alloc(message, total_size));
             RESULT_GUARD_POSIX(s2n_stuffer_write_bytes(message, conn->post_handshake.in_bytes, TLS_HANDSHAKE_HEADER_LENGTH));
             RESULT_GUARD_POSIX(s2n_stuffer_skip_read(message, TLS_HANDSHAKE_HEADER_LENGTH));
