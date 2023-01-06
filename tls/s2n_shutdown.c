@@ -19,10 +19,10 @@
 #include "tls/s2n_tls.h"
 #include "utils/s2n_safety.h"
 
-int s2n_shutdown(struct s2n_connection *conn, s2n_blocked_status *more)
+int s2n_shutdown(struct s2n_connection *conn, s2n_blocked_status *blocked)
 {
     POSIX_ENSURE_REF(conn);
-    POSIX_ENSURE_REF(more);
+    POSIX_ENSURE_REF(blocked);
 
     /* Treat this call as a no-op if already wiped */
     if (conn->send == NULL && conn->recv == NULL) {
@@ -37,20 +37,25 @@ int s2n_shutdown(struct s2n_connection *conn, s2n_blocked_status *more)
     POSIX_GUARD(s2n_queue_writer_close_alert_warning(conn));
 
     /* Write it */
-    POSIX_GUARD(s2n_flush(conn, more));
+    POSIX_GUARD(s2n_flush(conn, blocked));
 
-    /* Assume caller isn't interested in pending incoming data */
-    if (conn->in_status == PLAINTEXT) {
+    /* Wait for the peer's close_notify, if not yet received */
+    uint8_t record_type = 0;
+    int isSSLv2 = false;
+    *blocked = S2N_BLOCKED_ON_READ;
+    while (!conn->close_notify_received) {
+        POSIX_GUARD(s2n_read_full_record(conn, &record_type, &isSSLv2));
+        POSIX_ENSURE(!isSSLv2, S2N_ERR_BAD_MESSAGE);
+        if (record_type == TLS_ALERT) {
+            POSIX_GUARD(s2n_process_alert_fragment(conn));
+        }
+
+        /* Wipe and keep trying */
         POSIX_GUARD(s2n_stuffer_wipe(&conn->header_in));
         POSIX_GUARD(s2n_stuffer_wipe(&conn->in));
         conn->in_status = ENCRYPTED;
     }
 
-    /* Dont expect to receive another close notify alert if we have already received it */
-    if (!conn->close_notify_received) {
-        /* Fails with S2N_ERR_SHUTDOWN_RECORD_TYPE or S2N_ERR_ALERT on receipt of anything but a close_notify */
-        POSIX_GUARD(s2n_recv_close_notify(conn, more));
-    }
-
-    return 0;
+    *blocked = S2N_NOT_BLOCKED;
+    return S2N_SUCCESS;
 }

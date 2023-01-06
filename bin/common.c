@@ -486,3 +486,30 @@ uint8_t unsafe_verify_host(const char *host_name, size_t host_name_len, void *da
 
     return (uint8_t) (strcasecmp(host_name, verify_data->trusted_host) == 0);
 }
+
+int wait_for_shutdown(struct s2n_connection *conn)
+{
+    /* Just do a simple busy wait for shutdown */
+    s2n_blocked_status blocked = S2N_NOT_BLOCKED;
+    while (s2n_shutdown(conn, &blocked) != S2N_SUCCESS) {
+        switch(s2n_error_get_type(s2n_errno)) {
+            case S2N_ERR_T_BLOCKED:
+                /* Just try again */
+                break;
+            case S2N_ERR_T_CLOSED:
+                /*
+                 * Most of our integration tests close the connection by killing the process,
+                 * without performing a graceful shutdown.
+                 *
+                 * We can't control the behavior of our peer so we shouldn't kill this process,
+                 * but we should print a warning.
+                 */
+                fprintf(stdout, "Connection closed by peer\n");
+                return S2N_SUCCESS;
+            default:
+                fprintf(stderr, "Unexpected error during shutdown: '%s'\n", s2n_strerror(s2n_errno, NULL));
+                exit(1);
+        }
+    }
+    return S2N_SUCCESS;
+}
