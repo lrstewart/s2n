@@ -98,7 +98,7 @@ jobs:
       
       # Enforce that clippy's msrv matches rust-toolchain
       - name: Check MSRV
-        run: grep ${{env.ROOT_PATH}}/.clippy.toml $(cat ${{env.ROOT_PATH}}/rust-toolchain)
+        run: grep $(cat ${{env.ROOT_PATH}}/rust-toolchain) ${{env.ROOT_PATH}}/.clippy.toml
           
       # We don't need to format the generated files,
       # but if they don't exist other code breaks.
