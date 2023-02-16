@@ -424,9 +424,15 @@ impl Builder {
             connection_ptr: *mut s2n_connection,
             _context: *mut core::ffi::c_void,
         ) -> libc::c_int {
-            with_connection(connection_ptr, |conn| {
-                trigger_async_client_hello_callback(conn).into()
+            with_context(connection_ptr, |conn, context| {
+                let callback = context.client_hello_callback.as_ref();
+                let future = callback
+                    .map(|c| c.on_client_hello(conn))
+                    .unwrap_or(Ok(None));
+                let cleanup = Box::new(ClientHelloState {});
+                AsyncCallback::trigger(future, cleanup, conn)
             })
+            .into()
         }
 
         let handler = Box::new(handler);
@@ -442,6 +448,40 @@ impl Builder {
             .into_result()?;
         }
 
+        Ok(self)
+    }
+
+    /// Set a callback function triggered by operations requiring the private key.
+    ///
+    /// See https://github.com/aws/s2n-tls/blob/main/docs/USAGE-GUIDE.md#private-key-operation-related-calls
+    pub fn set_private_key_callback<T: 'static + PrivateKeyCallback>(
+        &mut self,
+        handler: T,
+    ) -> Result<&mut Self, Error> {
+        unsafe extern "C" fn private_key_cb(
+            conn_ptr: *mut s2n_connection,
+            op_ptr: *mut s2n_async_pkey_op,
+        ) -> libc::c_int {
+            with_context(conn_ptr, |conn, context| {
+                let state = PrivateKeyOperation::try_from_cb(conn, op_ptr, conn_ptr);
+                let callback = context.private_key_callback.as_ref();
+                let future_result = state.and_then(|state| {
+                    callback.map_or(Ok(None), |callback| callback.handle_operation(conn, state))
+                });
+                let cleanup = Box::new(ClientHelloState {});
+                AsyncCallback::trigger(future_result, cleanup, conn)
+            })
+            .into()
+        }
+
+        let handler = Box::new(handler);
+        let context = self.0.context_mut();
+        context.private_key_callback = Some(handler);
+
+        unsafe {
+            s2n_config_set_async_pkey_callback(self.as_mut_ptr(), Some(private_key_cb))
+                .into_result()?;
+        }
         Ok(self)
     }
 
@@ -539,6 +579,7 @@ impl Builder {
 pub(crate) struct Context {
     refcount: AtomicUsize,
     pub(crate) client_hello_callback: Option<Box<dyn ClientHelloCallback>>,
+    pub(crate) private_key_callback: Option<Box<dyn PrivateKeyCallback>>,
     pub(crate) verify_host_callback: Option<Box<dyn VerifyHostNameCallback>>,
     pub(crate) wall_clock: Option<Box<dyn WallClock>>,
     pub(crate) monotonic_clock: Option<Box<dyn MonotonicClock>>,
@@ -553,6 +594,7 @@ impl Default for Context {
         Self {
             refcount,
             client_hello_callback: None,
+            private_key_callback: None,
             verify_host_callback: None,
             wall_clock: None,
             monotonic_clock: None,

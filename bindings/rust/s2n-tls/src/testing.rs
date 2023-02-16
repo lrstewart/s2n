@@ -199,3 +199,12 @@ pub fn poll_tls_pair(mut pair: Pair<Harness, Harness>) -> Pair<Harness, Harness>
 
     pair
 }
+
+pub fn poll_tls_pair_result(mut pair: Pair<Harness, Harness>) -> Result<()> {
+    loop {
+        match pair.poll() {
+            Poll::Ready(result) => return result,
+            Poll::Pending => continue,
+        }
+    }
+}

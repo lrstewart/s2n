@@ -51,6 +51,8 @@ enum Context {
     MissingWaker,
     Code(s2n_status_code::Type, Errno),
     Application(Box<dyn std::error::Error + Send + Sync + 'static>),
+    #[cfg(test)]
+    Test(String),
 }
 
 pub struct Error(Context);
@@ -191,6 +193,8 @@ impl Error {
                 // Safety: we assume the string has a valid encoding coming from s2n
                 cstr_to_str(s2n_strerror_name(code))
             },
+            #[cfg(test)]
+            Context::Test(_) => "Test",
         }
     }
 
@@ -205,12 +209,13 @@ impl Error {
                 // Safety: we assume the string has a valid encoding coming from s2n
                 cstr_to_str(s2n_strerror(code, core::ptr::null()))
             },
+            #[cfg(test)]
+            Context::Test(_) => "An error only used for testing error handling",
         }
     }
 
     pub fn debug(&self) -> Option<&'static str> {
         match self.0 {
-            Context::InvalidInput | Context::MissingWaker | Context::Application(_) => None,
             Context::Code(code, _) => unsafe {
                 let debug_info = s2n_strerror_debug(code, core::ptr::null());
 
@@ -225,6 +230,7 @@ impl Error {
                     Some(cstr_to_str(debug_info))
                 }
             },
+            _ => None,
         }
     }
 
@@ -233,6 +239,8 @@ impl Error {
             Context::InvalidInput | Context::MissingWaker => ErrorType::UsageError,
             Context::Application(_) => ErrorType::Application,
             Context::Code(code, _) => unsafe { ErrorType::from(s2n_error_get_type(code)) },
+            #[cfg(test)]
+            Context::Test(_) => ErrorType::InternalError,
         }
     }
 
@@ -241,6 +249,8 @@ impl Error {
             Context::InvalidInput | Context::MissingWaker => ErrorSource::Bindings,
             Context::Application(_) => ErrorSource::Application,
             Context::Code(_, _) => ErrorSource::Library,
+            #[cfg(test)]
+            Context::Test(_) => ErrorSource::Bindings,
         }
     }
 
@@ -270,7 +280,6 @@ impl Error {
     /// This API is currently incomplete and should not be relied upon.
     pub fn alert(&self) -> Option<u8> {
         match self.0 {
-            Context::InvalidInput | Context::MissingWaker | Context::Application(_) => None,
             Context::Code(code, _) => {
                 let mut alert = 0;
                 let r = unsafe { s2n_error_get_alert(code, &mut alert) };
@@ -279,6 +288,7 @@ impl Error {
                     Err(_) => None,
                 }
             }
+            _ => None,
         }
     }
 }
@@ -457,6 +467,27 @@ mod tests {
                 .unwrap()
                 .downcast_ref::<CustomError>()
                 .unwrap();
+        }
+    }
+}
+
+#[cfg(test)]
+impl From<&str> for Error {
+    fn from(input: &str) -> Self {
+        Self(Context::Test(input.into()))
+    }
+}
+
+#[cfg(test)]
+impl Error {
+    pub(crate) fn assert_error(input: Box<dyn std::error::Error>, expected: &str) {
+        let error = input
+            .downcast::<Self>()
+            .expect("Unexpected generic error type");
+        if let Context::Test(msg) = error.0 {
+            assert_eq!(msg, expected)
+        } else {
+            panic!("Unexpected known error type");
         }
     }
 }

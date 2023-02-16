@@ -5,8 +5,12 @@ use crate::{
     connection::Connection,
     testing::{Context, Error, Result},
 };
+use alloc::sync::Arc;
 use bytes::BytesMut;
-use core::task::Poll;
+use core::{
+    sync::atomic::{AtomicUsize, Ordering},
+    task::Poll,
+};
 use libc::c_void;
 use s2n_tls_sys::s2n_status_code::Type as s2n_status_code;
 
@@ -195,11 +199,30 @@ impl<'a, T: 'a + Context> Callback<'a, T> {
     }
 }
 
+#[derive(Clone)]
+pub struct Counter(Arc<AtomicUsize>);
+impl Counter {
+    fn new() -> Self {
+        Counter(Arc::new(AtomicUsize::new(0)))
+    }
+    pub fn count(&self) -> usize {
+        self.0.load(Ordering::Relaxed)
+    }
+    pub fn increment(&self) {
+        self.0.fetch_add(1, Ordering::Relaxed);
+    }
+}
+impl Default for Counter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
         callbacks::{ClientHelloCallback, ConnectionFuture, VerifyHostNameCallback},
-        testing::{client_hello::*, *},
+        testing::{client_hello::*, s2n_tls::*, *},
     };
     use alloc::sync::Arc;
     use core::sync::atomic::Ordering;
@@ -441,6 +464,7 @@ mod tests {
     }
     #[test]
     fn client_hello_callback_sync() -> Result<(), Error> {
+        let (waker, wake_count) = new_count_waker();
         #[derive(Clone)]
         struct ClientHelloSyncCallback(Arc<AtomicUsize>);
         impl ClientHelloSyncCallback {
@@ -483,6 +507,7 @@ mod tests {
             // create and configure a server connection
             let mut server = crate::connection::Connection::new_server();
             server.set_config(config.clone())?;
+            server.set_waker(Some(&waker))?;
             Harness::new(server)
         };
 
@@ -498,6 +523,7 @@ mod tests {
         assert_eq!(callback.count(), 0);
         poll_tls_pair(pair);
         assert_eq!(callback.count(), 1);
+        assert_eq!(wake_count, 0);
         Ok(())
     }
 
