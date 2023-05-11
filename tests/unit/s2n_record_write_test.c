@@ -63,7 +63,7 @@ int main(int argc, char *argv[])
             EXPECT_SUCCESS(s2n_stuffer_growable_alloc(&out, 0));
             EXPECT_SUCCESS(s2n_connection_set_send_io_stuffer(&out, server_conn));
 
-            EXPECT_SUCCESS(s2n_queue_writer_close_alert_warning(server_conn));
+            EXPECT_SUCCESS(s2n_queue_reader_handshake_failure_alert(server_conn));
 
             s2n_blocked_status blocked = S2N_NOT_BLOCKED;
             EXPECT_ERROR_WITH_ERRNO(s2n_negotiate_until_message(server_conn, &blocked, SERVER_HELLO),

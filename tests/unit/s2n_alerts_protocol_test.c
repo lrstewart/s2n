@@ -297,7 +297,7 @@ int main(int argc, char **argv)
             /* In most cases, the alert will not be sent until we attempt to shutdown */
             EXPECT_SUCCESS(s2n_shutdown_send(failed_conn, &blocked));
             EXPECT_EQUAL(expected_alert == S2N_TLS_ALERT_CLOSE_NOTIFY,
-                    failed_conn->close_notify_queued);
+                    failed_conn->close_notify_sent);
 
             /**
              *= https://tools.ietf.org/rfc/rfc8446#section-6.2

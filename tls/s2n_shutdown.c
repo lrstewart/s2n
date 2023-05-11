@@ -48,7 +48,7 @@ static bool s2n_error_alert_sent(struct s2n_connection *conn)
         return false;
     }
     /* Verify that the alert sent wasn't just a close_notify */
-    if (conn->close_notify_queued) {
+    if (conn->close_notify_sent) {
         return false;
     }
     return true;
@@ -86,7 +86,7 @@ int s2n_shutdown_impl(struct s2n_connection *conn, s2n_shutdown_how how,
      * We need to check after flushing to account for any pending alerts.
      */
     if (s2n_error_alert_sent(conn)) {
-        conn->read_closed = 1;
+        POSIX_GUARD_RESULT(s2n_connection_set_closed(conn));
         return S2N_SUCCESS;
     }
 
@@ -95,13 +95,14 @@ int s2n_shutdown_impl(struct s2n_connection *conn, s2n_shutdown_how how,
      *# Each party MUST send a "close_notify" alert before closing its write
      *# side of the connection, unless it has already sent some error alert.
      */
-    if (!conn->close_notify_queued) {
-        POSIX_GUARD(s2n_queue_writer_close_alert_warning(conn));
-        conn->close_notify_queued = 1;
+    if (!conn->close_notify_sent) {
+        POSIX_GUARD_RESULT(s2n_alerts_write_close_notify(conn));
+        conn->close_notify_sent = true;
         POSIX_GUARD(s2n_flush(conn, blocked));
     }
 
     /* If we're only closing the write side, then we've succeeded. */
+    conn->write_closed = 1;
     if (how == S2N_SHUTDOWN_WR) {
         return S2N_SUCCESS;
     }

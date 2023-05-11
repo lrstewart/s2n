@@ -245,29 +245,18 @@ int s2n_process_alert_fragment(struct s2n_connection *conn)
     return 0;
 }
 
-int s2n_queue_writer_close_alert_warning(struct s2n_connection *conn)
+S2N_RESULT s2n_alerts_write_close_notify(struct s2n_connection *conn)
 {
-    POSIX_ENSURE_REF(conn);
-
-    uint8_t alert[2];
-    alert[0] = S2N_TLS_ALERT_LEVEL_WARNING;
-    alert[1] = S2N_TLS_ALERT_CLOSE_NOTIFY;
-
-    struct s2n_blob out = { 0 };
-    POSIX_GUARD(s2n_blob_init(&out, alert, sizeof(alert)));
-
-    /* If there is an alert pending, do nothing */
-    if (s2n_stuffer_data_available(&conn->writer_alert_out)) {
-        return S2N_SUCCESS;
-    }
-
     if (!s2n_alerts_supported(conn)) {
-        return S2N_SUCCESS;
+        return S2N_RESULT_OK;
     }
 
-    POSIX_GUARD(s2n_stuffer_write(&conn->writer_alert_out, &out));
+    struct s2n_blob close_notify = { 0 };
+    uint8_t close_notify_bytes[] = { S2N_TLS_ALERT_LEVEL_WARNING, S2N_TLS_ALERT_CLOSE_NOTIFY };
+    RESULT_GUARD_POSIX(s2n_blob_init(&close_notify, close_notify_bytes, sizeof(close_notify_bytes)));
 
-    return S2N_SUCCESS;
+    RESULT_GUARD(s2n_record_write(conn, TLS_ALERT, &close_notify));
+    return S2N_RESULT_OK;
 }
 
 static int s2n_queue_reader_alert(struct s2n_connection *conn, uint8_t level, uint8_t error_code)

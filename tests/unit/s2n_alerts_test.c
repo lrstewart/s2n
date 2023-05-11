@@ -274,39 +274,6 @@ int main(int argc, char **argv)
         }
     }
 
-    /* Test s2n_queue_writer_close_alert_warning */
-    {
-        /* Safety check */
-        EXPECT_FAILURE_WITH_ERRNO(s2n_queue_writer_close_alert_warning(NULL), S2N_ERR_NULL);
-
-        /* Does not send alert if alerts not supported */
-        if (s2n_is_tls13_fully_supported()) {
-            struct s2n_config *config;
-            EXPECT_NOT_NULL(config = s2n_config_new());
-
-            struct s2n_connection *conn;
-            EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_CLIENT));
-            EXPECT_SUCCESS(s2n_connection_set_config(conn, config));
-
-            EXPECT_EQUAL(s2n_stuffer_data_available(&conn->writer_alert_out), 0);
-
-            /* Writes alert by default */
-            EXPECT_SUCCESS(s2n_queue_writer_close_alert_warning(conn));
-            EXPECT_EQUAL(s2n_stuffer_data_available(&conn->writer_alert_out), ALERT_LEN);
-
-            /* Wipe error */
-            EXPECT_SUCCESS(s2n_stuffer_wipe(&conn->writer_alert_out));
-
-            /* Does not write alert when alerts not supported (when QUIC mode enabled) */
-            EXPECT_SUCCESS(s2n_config_enable_quic(config));
-            EXPECT_SUCCESS(s2n_queue_writer_close_alert_warning(conn));
-            EXPECT_EQUAL(s2n_stuffer_data_available(&conn->writer_alert_out), 0);
-
-            EXPECT_SUCCESS(s2n_connection_free(conn));
-            EXPECT_SUCCESS(s2n_config_free(config));
-        }
-    }
-
     /* Test s2n_queue_reader_alert
      *      Since s2n_queue_reader_alert is static, we'll test it indirectly via s2n_queue_reader_handshake_failure_alert */
     {
@@ -362,14 +329,6 @@ int main(int argc, char **argv)
         /* Test: a fatal reader alert closes the connection */
         conn->write_closing = false;
         EXPECT_SUCCESS(s2n_queue_reader_handshake_failure_alert(conn));
-        EXPECT_SUCCESS(s2n_flush(conn, &blocked));
-        EXPECT_TRUE(conn->write_closing);
-
-        /* Test: a close_notify alert closes the connection
-         * This is our only writer alert, and technically it's a warning.
-         */
-        conn->write_closing = false;
-        EXPECT_SUCCESS(s2n_queue_writer_close_alert_warning(conn));
         EXPECT_SUCCESS(s2n_flush(conn, &blocked));
         EXPECT_TRUE(conn->write_closing);
 

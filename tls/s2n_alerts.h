@@ -103,8 +103,8 @@ typedef enum {
 } s2n_tls_alert_code;
 
 int s2n_process_alert_fragment(struct s2n_connection *conn);
-int s2n_queue_writer_close_alert_warning(struct s2n_connection *conn);
 int s2n_queue_reader_unsupported_protocol_version_alert(struct s2n_connection *conn);
 int s2n_queue_reader_handshake_failure_alert(struct s2n_connection *conn);
 S2N_RESULT s2n_queue_reader_no_renegotiation_alert(struct s2n_connection *conn);
 S2N_RESULT s2n_alerts_close_if_fatal(struct s2n_connection *conn, struct s2n_blob *alert);
+S2N_RESULT s2n_alerts_write_close_notify(struct s2n_connection *conn);

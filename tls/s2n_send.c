@@ -116,19 +116,6 @@ WRITE:
         goto WRITE;
     }
 
-    /* Do the same for writer driven alerts */
-    if (s2n_stuffer_data_available(&conn->writer_alert_out) == 2) {
-        struct s2n_blob alert = { 0 };
-        alert.data = conn->writer_alert_out.blob.data;
-        alert.size = 2;
-        POSIX_GUARD_RESULT(s2n_record_write(conn, TLS_ALERT, &alert));
-        POSIX_GUARD(s2n_stuffer_rewrite(&conn->writer_alert_out));
-        POSIX_GUARD_RESULT(s2n_alerts_close_if_fatal(conn, &alert));
-
-        /* Actually write it ... */
-        goto WRITE;
-    }
-
     *blocked = S2N_NOT_BLOCKED;
 
     return 0;
