@@ -504,6 +504,7 @@ if (BUILD_TESTING)
     add_library(allocator_overrides SHARED ${TEST_LD_PRELOAD})
 
     set(UNIT_TEST_ENVS S2N_DONT_MLOCK=1)
+    set(UNIT_TEST_ENVS ${UNIT_TEST_ENVS} CTEST_OUTPUT_ON_FAILURE=1)
     if(TSAN)
         set(TSAN_SUPPRESSIONS_FILE ${CMAKE_SOURCE_DIR}/tests/.tsan_suppressions)
         if(NOT EXISTS ${TSAN_SUPPRESSIONS_FILE})
