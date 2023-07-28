@@ -209,11 +209,14 @@ int main(int argc, char *argv[])
         uint8_t *chain_data = s2n_stuffer_raw_read(&cert_chain_stuffer, chain_len);
         EXPECT_NOT_NULL(chain_data);
 
+        struct s2n_blob cert_chain = { 0 };
+        EXPECT_SUCCESS(s2n_blob_init(&cert_chain, chain_data, chain_len));
+
         DEFER_CLEANUP(struct s2n_pkey public_key_out = { 0 }, s2n_pkey_free);
         EXPECT_SUCCESS(s2n_pkey_zero_init(&public_key_out));
         s2n_pkey_type pkey_type = S2N_PKEY_TYPE_UNKNOWN;
-        EXPECT_OK(s2n_x509_validator_validate_cert_chain(&received_lookup_data_validator, connection, chain_data,
-                chain_len, &pkey_type, &public_key_out));
+        EXPECT_OK(s2n_x509_validator_validate_cert_chain(&received_lookup_data_validator,
+                connection, &cert_chain, &pkey_type, &public_key_out));
         EXPECT_TRUE(received_lookup_data.callback_invoked_count == CRL_TEST_CHAIN_LEN);
 
         /* Ensure all certificates were received in the callback */
@@ -253,12 +256,14 @@ int main(int argc, char *argv[])
         uint8_t *chain_data = s2n_stuffer_raw_read(&cert_chain_stuffer, chain_len);
         EXPECT_NOT_NULL(chain_data);
 
+        struct s2n_blob cert_chain = { 0 };
+        EXPECT_SUCCESS(s2n_blob_init(&cert_chain, chain_data, chain_len));
+
         DEFER_CLEANUP(struct s2n_pkey public_key_out = { 0 }, s2n_pkey_free);
         EXPECT_SUCCESS(s2n_pkey_zero_init(&public_key_out));
         s2n_pkey_type pkey_type = S2N_PKEY_TYPE_UNKNOWN;
-        EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator, connection, chain_data,
-                                        chain_len, &pkey_type, &public_key_out),
-                S2N_ERR_CERT_REVOKED);
+        EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator,
+                connection, &cert_chain, &pkey_type, &public_key_out), S2N_ERR_CERT_REVOKED);
         EXPECT_TRUE(data.callback_invoked_count == CRL_TEST_CHAIN_LEN);
     };
 
@@ -299,12 +304,14 @@ int main(int argc, char *argv[])
         uint8_t *chain_data = s2n_stuffer_raw_read(&cert_chain_stuffer, chain_len);
         EXPECT_NOT_NULL(chain_data);
 
+        struct s2n_blob cert_chain = { 0 };
+        EXPECT_SUCCESS(s2n_blob_init(&cert_chain, chain_data, chain_len));
+
         DEFER_CLEANUP(struct s2n_pkey public_key_out = { 0 }, s2n_pkey_free);
         EXPECT_SUCCESS(s2n_pkey_zero_init(&public_key_out));
         s2n_pkey_type pkey_type = S2N_PKEY_TYPE_UNKNOWN;
-        EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator, connection, chain_data,
-                                        chain_len, &pkey_type, &public_key_out),
-                S2N_ERR_CERT_REVOKED);
+        EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator,
+                connection, &cert_chain, &pkey_type, &public_key_out), S2N_ERR_CERT_REVOKED);
         EXPECT_TRUE(data.callback_invoked_count == CRL_TEST_CHAIN_LEN);
     }
 
@@ -337,11 +344,14 @@ int main(int argc, char *argv[])
         uint8_t *chain_data = s2n_stuffer_raw_read(&cert_chain_stuffer, chain_len);
         EXPECT_NOT_NULL(chain_data);
 
+        struct s2n_blob cert_chain = { 0 };
+        EXPECT_SUCCESS(s2n_blob_init(&cert_chain, chain_data, chain_len));
+
         DEFER_CLEANUP(struct s2n_pkey public_key_out = { 0 }, s2n_pkey_free);
         EXPECT_SUCCESS(s2n_pkey_zero_init(&public_key_out));
         s2n_pkey_type pkey_type = S2N_PKEY_TYPE_UNKNOWN;
-        EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator, connection, chain_data,
-                                        chain_len, &pkey_type, &public_key_out),
+        EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator,
+                connection, &cert_chain, &pkey_type, &public_key_out),
                 S2N_ERR_CRL_LOOKUP_FAILED);
         EXPECT_TRUE(data.callback_invoked_count == CRL_TEST_CHAIN_LEN);
     };
@@ -392,11 +402,14 @@ int main(int argc, char *argv[])
         uint8_t *chain_data = s2n_stuffer_raw_read(&cert_chain_stuffer, chain_len);
         EXPECT_NOT_NULL(chain_data);
 
+        struct s2n_blob cert_chain = { 0 };
+        EXPECT_SUCCESS(s2n_blob_init(&cert_chain, chain_data, chain_len));
+
         DEFER_CLEANUP(struct s2n_pkey public_key_out = { 0 }, s2n_pkey_free);
         EXPECT_SUCCESS(s2n_pkey_zero_init(&public_key_out));
         s2n_pkey_type pkey_type = S2N_PKEY_TYPE_UNKNOWN;
-        EXPECT_OK(s2n_x509_validator_validate_cert_chain(&validator, connection, chain_data, chain_len, &pkey_type,
-                &public_key_out));
+        EXPECT_OK(s2n_x509_validator_validate_cert_chain(&validator, connection,
+                &cert_chain, &pkey_type, &public_key_out));
         EXPECT_TRUE(data.callback_invoked_count == 3);
     };
 
@@ -427,14 +440,17 @@ int main(int argc, char *argv[])
         uint8_t *chain_data = s2n_stuffer_raw_read(&cert_chain_stuffer, chain_len);
         EXPECT_NOT_NULL(chain_data);
 
+        struct s2n_blob cert_chain = { 0 };
+        EXPECT_SUCCESS(s2n_blob_init(&cert_chain, chain_data, chain_len));
+
         DEFER_CLEANUP(struct s2n_pkey public_key_out = { 0 }, s2n_pkey_free);
         EXPECT_SUCCESS(s2n_pkey_zero_init(&public_key_out));
         s2n_pkey_type pkey_type = S2N_PKEY_TYPE_UNKNOWN;
 
         /* Blocks if no response received from callbacks */
         for (int i = 0; i < 10; i++) {
-            EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator, connection, chain_data, chain_len,
-                                            &pkey_type, &public_key_out),
+            EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator,
+                    connection, &cert_chain, &pkey_type, &public_key_out),
                     S2N_ERR_ASYNC_BLOCKED);
         }
 
@@ -444,8 +460,8 @@ int main(int argc, char *argv[])
         EXPECT_NOT_NULL(lookup);
         EXPECT_SUCCESS(s2n_crl_lookup_set(lookup, root_crl));
         for (int i = 0; i < 10; ++i) {
-            EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator, connection, chain_data, chain_len,
-                                            &pkey_type, &public_key_out),
+            EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator,
+                    connection, &cert_chain, &pkey_type, &public_key_out),
                     S2N_ERR_ASYNC_BLOCKED);
         }
 
@@ -454,8 +470,8 @@ int main(int argc, char *argv[])
         EXPECT_OK(s2n_array_get(validator.crl_lookup_list, 1, (void **) &lookup));
         EXPECT_NOT_NULL(lookup);
         EXPECT_SUCCESS(s2n_crl_lookup_set(lookup, intermediate_crl));
-        EXPECT_OK(s2n_x509_validator_validate_cert_chain(&validator, connection, chain_data, chain_len, &pkey_type,
-                &public_key_out));
+        EXPECT_OK(s2n_x509_validator_validate_cert_chain(&validator, connection,
+                &cert_chain, &pkey_type, &public_key_out));
     };
 
     /* CRL validation fails when a callback returns unsuccessfully */
@@ -485,11 +501,14 @@ int main(int argc, char *argv[])
         uint8_t *chain_data = s2n_stuffer_raw_read(&cert_chain_stuffer, chain_len);
         EXPECT_NOT_NULL(chain_data);
 
+        struct s2n_blob cert_chain = { 0 };
+        EXPECT_SUCCESS(s2n_blob_init(&cert_chain, chain_data, chain_len));
+
         DEFER_CLEANUP(struct s2n_pkey public_key_out = { 0 }, s2n_pkey_free);
         EXPECT_SUCCESS(s2n_pkey_zero_init(&public_key_out));
         s2n_pkey_type pkey_type = S2N_PKEY_TYPE_UNKNOWN;
-        EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator, connection, chain_data,
-                                        chain_len, &pkey_type, &public_key_out),
+        EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator,
+                connection, &cert_chain, &pkey_type, &public_key_out),
                 S2N_ERR_CANCELLED);
     };
 
@@ -524,11 +543,14 @@ int main(int argc, char *argv[])
         uint8_t *chain_data = s2n_stuffer_raw_read(&cert_chain_stuffer, chain_len);
         EXPECT_NOT_NULL(chain_data);
 
+        struct s2n_blob cert_chain = { 0 };
+        EXPECT_SUCCESS(s2n_blob_init(&cert_chain, chain_data, chain_len));
+
         DEFER_CLEANUP(struct s2n_pkey public_key_out = { 0 }, s2n_pkey_free);
         EXPECT_SUCCESS(s2n_pkey_zero_init(&public_key_out));
         s2n_pkey_type pkey_type = S2N_PKEY_TYPE_UNKNOWN;
-        EXPECT_OK(s2n_x509_validator_validate_cert_chain(&validator, connection, chain_data, chain_len, &pkey_type,
-                &public_key_out));
+        EXPECT_OK(s2n_x509_validator_validate_cert_chain(&validator, connection,
+                &cert_chain, &pkey_type, &public_key_out));
         EXPECT_TRUE(data.callback_invoked_count == CRL_TEST_CHAIN_LEN);
     };
 
@@ -563,11 +585,14 @@ int main(int argc, char *argv[])
         uint8_t *chain_data = s2n_stuffer_raw_read(&cert_chain_stuffer, chain_len);
         EXPECT_NOT_NULL(chain_data);
 
+        struct s2n_blob cert_chain = { 0 };
+        EXPECT_SUCCESS(s2n_blob_init(&cert_chain, chain_data, chain_len));
+
         DEFER_CLEANUP(struct s2n_pkey public_key_out = { 0 }, s2n_pkey_free);
         EXPECT_SUCCESS(s2n_pkey_zero_init(&public_key_out));
         s2n_pkey_type pkey_type = S2N_PKEY_TYPE_UNKNOWN;
-        EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator, connection, chain_data, chain_len,
-                                        &pkey_type, &public_key_out),
+        EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator,
+                connection, &cert_chain, &pkey_type, &public_key_out),
                 S2N_ERR_CERT_REVOKED);
         EXPECT_TRUE(data.callback_invoked_count == CRL_TEST_CHAIN_LEN);
     };
@@ -603,11 +628,14 @@ int main(int argc, char *argv[])
         uint8_t *chain_data = s2n_stuffer_raw_read(&cert_chain_stuffer, chain_len);
         EXPECT_NOT_NULL(chain_data);
 
+        struct s2n_blob cert_chain = { 0 };
+        EXPECT_SUCCESS(s2n_blob_init(&cert_chain, chain_data, chain_len));
+
         DEFER_CLEANUP(struct s2n_pkey public_key_out = { 0 }, s2n_pkey_free);
         EXPECT_SUCCESS(s2n_pkey_zero_init(&public_key_out));
         s2n_pkey_type pkey_type = S2N_PKEY_TYPE_UNKNOWN;
-        EXPECT_OK(s2n_x509_validator_validate_cert_chain(&validator, connection, chain_data, chain_len, &pkey_type,
-                &public_key_out));
+        EXPECT_OK(s2n_x509_validator_validate_cert_chain(&validator, connection,
+                &cert_chain, &pkey_type, &public_key_out));
         EXPECT_TRUE(data.callback_invoked_count == CRL_TEST_CHAIN_LEN);
     };
 
@@ -642,11 +670,14 @@ int main(int argc, char *argv[])
         uint8_t *chain_data = s2n_stuffer_raw_read(&cert_chain_stuffer, chain_len);
         EXPECT_NOT_NULL(chain_data);
 
+        struct s2n_blob cert_chain = { 0 };
+        EXPECT_SUCCESS(s2n_blob_init(&cert_chain, chain_data, chain_len));
+
         DEFER_CLEANUP(struct s2n_pkey public_key_out = { 0 }, s2n_pkey_free);
         EXPECT_SUCCESS(s2n_pkey_zero_init(&public_key_out));
         s2n_pkey_type pkey_type = S2N_PKEY_TYPE_UNKNOWN;
-        EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator, connection, chain_data, chain_len,
-                                        &pkey_type, &public_key_out),
+        EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator,
+                connection, &cert_chain, &pkey_type, &public_key_out),
                 S2N_ERR_CERT_REVOKED);
         EXPECT_TRUE(data.callback_invoked_count == CRL_TEST_CHAIN_LEN);
     };

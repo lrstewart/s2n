@@ -1117,3 +1117,32 @@ int s2n_config_set_recv_multi_record(struct s2n_config *config, bool enabled)
 
     return S2N_SUCCESS;
 }
+
+int s2n_config_set_certificate_cb(struct s2n_config *config,
+        s2n_certificate_cb callback, void *context)
+{
+    POSIX_ENSURE_REF(config);
+    config->certificate_cb = callback;
+    config->certificate_cb_ctx = context;
+    return S2N_SUCCESS;
+}
+
+int s2n_peer_certificate_get_raw(struct s2n_peer_certificate *context,
+        uint8_t **raw_bytes, size_t *raw_bytes_size)
+{
+    POSIX_ENSURE_REF(context);
+    POSIX_ENSURE_REF(raw_bytes);
+    POSIX_ENSURE_REF(raw_bytes_size);
+    *raw_bytes = context->raw.data;
+    *raw_bytes_size = context->raw.size;
+    return S2N_SUCCESS;
+}
+
+int s2n_peer_certificate_get_status(struct s2n_peer_certificate *context,
+        s2n_cert_chain_status *status)
+{
+    POSIX_ENSURE_REF(context);
+    POSIX_ENSURE_REF(status);
+    *status = context->status;
+    return S2N_SUCCESS;
+}

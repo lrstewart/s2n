@@ -3339,6 +3339,23 @@ S2N_API int s2n_offered_early_data_reject(struct s2n_offered_early_data *early_d
  */
 S2N_API int s2n_offered_early_data_accept(struct s2n_offered_early_data *early_data);
 
+typedef enum {
+    S2N_CERT_CHAIN_RECEIVED = 0,
+    S2N_CERT_CHAIN_VALIDATED,
+    S2N_CERT_CHAIN_REJECTED,
+} s2n_cert_chain_status;
+
+struct s2n_peer_certificate;
+
+typedef int (*s2n_certificate_cb)(struct s2n_connection *conn, void *context,
+        struct s2n_peer_certificate *peer_certificate);
+S2N_API int s2n_config_set_certificate_cb(struct s2n_config *config,
+        s2n_certificate_cb callback, void *context);
+S2N_API int s2n_peer_certificate_get_raw(struct s2n_peer_certificate *context,
+        uint8_t **raw_bytes, size_t *raw_bytes_size);
+S2N_API int s2n_peer_certificate_get_status(struct s2n_peer_certificate *context,
+        s2n_cert_chain_status *status);
+
 #ifdef __cplusplus
 }
 #endif

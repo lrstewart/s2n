@@ -59,6 +59,31 @@ DEFINE_POINTER_CLEANUP_FUNC(OCSP_BASICRESP *, OCSP_BASICRESP_free);
 DEFINE_POINTER_CLEANUP_FUNC(STACK_OF(X509_CRL) *, sk_X509_CRL_free);
 DEFINE_POINTER_CLEANUP_FUNC(STACK_OF(GENERAL_NAME) *, GENERAL_NAMES_free);
 
+static S2N_RESULT s2n_certificate_cb_execute(struct s2n_connection *conn, struct s2n_blob *raw,
+        s2n_cert_chain_status status)
+{
+    RESULT_ENSURE_REF(conn);
+
+    struct s2n_config *config = conn->config;
+    RESULT_ENSURE_REF(config);
+
+    s2n_certificate_cb callback = config->certificate_cb;
+    if (callback == NULL) {
+        return S2N_RESULT_OK;
+    }
+
+    struct s2n_peer_certificate context = { 0 };
+    context.conn = conn;
+    context.raw = *raw;
+    context.status = status;
+
+    int result = callback(conn, config->certificate_cb_ctx, &context);
+    //RESULT_ENSURE(result == S2N_SUCCESS, S2N_ERR_CANCELLED);
+    RESULT_GUARD_POSIX(result);
+
+    return S2N_RESULT_OK;
+}
+
 uint8_t s2n_x509_ocsp_stapling_supported(void)
 {
     return S2N_OCSP_STAPLING_SUPPORTED;
@@ -579,7 +604,7 @@ static S2N_RESULT s2n_x509_validator_read_leaf_info(struct s2n_connection *conn,
 }
 
 S2N_RESULT s2n_x509_validator_validate_cert_chain(struct s2n_x509_validator *validator, struct s2n_connection *conn,
-        uint8_t *cert_chain_in, uint32_t cert_chain_len, s2n_pkey_type *pkey_type, struct s2n_pkey *public_key_out)
+        struct s2n_blob *cert_chain_in, s2n_pkey_type *pkey_type, struct s2n_pkey *public_key_out)
 {
     switch (validator->state) {
         case INIT:
@@ -592,18 +617,25 @@ S2N_RESULT s2n_x509_validator_validate_cert_chain(struct s2n_x509_validator *val
     }
 
     if (validator->state == INIT) {
-        RESULT_GUARD(s2n_x509_validator_process_cert_chain(validator, conn, cert_chain_in, cert_chain_len));
+        RESULT_GUARD(s2n_certificate_cb_execute(conn, cert_chain_in, S2N_CERT_CHAIN_RECEIVED));
+        RESULT_GUARD(s2n_x509_validator_process_cert_chain(validator, conn,
+                cert_chain_in->data, cert_chain_in->size));
     }
 
     if (validator->state == READY_TO_VERIFY) {
-        RESULT_GUARD(s2n_x509_validator_verify_cert_chain(validator, conn));
+        s2n_result result = s2n_x509_validator_verify_cert_chain(validator, conn);
+        if (s2n_result_is_error(result)) {
+            RESULT_GUARD(s2n_certificate_cb_execute(conn, cert_chain_in, S2N_CERT_CHAIN_REJECTED));
+            RESULT_GUARD(result);
+        }
+        RESULT_GUARD(s2n_certificate_cb_execute(conn, cert_chain_in, S2N_CERT_CHAIN_VALIDATED));
     }
 
     DEFER_CLEANUP(struct s2n_pkey public_key = { 0 }, s2n_pkey_free);
     s2n_pkey_zero_init(&public_key);
     s2n_parsed_extensions_list first_certificate_extensions = { 0 };
-    RESULT_GUARD(s2n_x509_validator_read_leaf_info(conn, cert_chain_in, cert_chain_len, &public_key, pkey_type,
-            &first_certificate_extensions));
+    RESULT_GUARD(s2n_x509_validator_read_leaf_info(conn, cert_chain_in->data,
+            cert_chain_in->size, &public_key, pkey_type, &first_certificate_extensions));
 
     if (conn->actual_protocol_version >= S2N_TLS13) {
         /* Only process certificate extensions received in the first certificate. Extensions received in all other

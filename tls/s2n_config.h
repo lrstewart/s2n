@@ -191,6 +191,9 @@ struct s2n_config {
 
     void *renegotiate_request_ctx;
     s2n_renegotiate_request_cb renegotiate_request_cb;
+
+    void *certificate_cb_ctx;
+    s2n_certificate_cb certificate_cb;
 };
 
 S2N_CLEANUP_RESULT s2n_config_ptr_free(struct s2n_config **config);

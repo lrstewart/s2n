@@ -119,8 +119,8 @@ int s2n_client_cert_recv(struct s2n_connection *conn)
     s2n_pkey_type pkey_type;
 
     /* Determine the Cert Type, Verify the Cert, and extract the Public Key */
-    POSIX_GUARD_RESULT(s2n_x509_validator_validate_cert_chain(&conn->x509_validator, conn, client_cert_chain.data,
-            client_cert_chain.size, &pkey_type, &public_key));
+    POSIX_GUARD_RESULT(s2n_x509_validator_validate_cert_chain(&conn->x509_validator, conn,
+            &client_cert_chain, &pkey_type, &public_key));
 
     conn->handshake_params.client_cert_pkey_type = pkey_type;
     POSIX_GUARD(s2n_pkey_setup_for_type(&public_key, pkey_type));
