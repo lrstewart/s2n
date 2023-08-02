@@ -24,6 +24,7 @@
 #include "utils/s2n_safety.h"
 
 static bool s2n_client_signature_algorithms_should_send(struct s2n_connection *conn);
+static int s2n_client_signature_algorithms_if_missing(struct s2n_connection *conn);
 static int s2n_client_signature_algorithms_send(struct s2n_connection *conn, struct s2n_stuffer *extension);
 static int s2n_client_signature_algorithms_recv(struct s2n_connection *conn, struct s2n_stuffer *extension);
 
@@ -33,12 +34,19 @@ const s2n_extension_type s2n_client_signature_algorithms_extension = {
     .send = s2n_client_signature_algorithms_send,
     .recv = s2n_client_signature_algorithms_recv,
     .should_send = s2n_client_signature_algorithms_should_send,
-    .if_missing = s2n_extension_noop_if_missing,
+    .if_missing = s2n_client_signature_algorithms_if_missing,
 };
 
 static bool s2n_client_signature_algorithms_should_send(struct s2n_connection *conn)
 {
     return s2n_connection_get_protocol_version(conn) >= S2N_TLS12;
+}
+
+static int s2n_client_signature_algorithms_if_missing(struct s2n_connection *conn)
+{
+    struct s2n_blob empty_list = { 0 };
+    POSIX_GUARD_RESULT(s2n_signature_algorithms_supported_list_process(conn, &empty_list));
+    return S2N_SUCCESS;
 }
 
 static int s2n_client_signature_algorithms_send(struct s2n_connection *conn, struct s2n_stuffer *extension)
@@ -49,5 +57,6 @@ static int s2n_client_signature_algorithms_send(struct s2n_connection *conn, str
 
 static int s2n_client_signature_algorithms_recv(struct s2n_connection *conn, struct s2n_stuffer *extension)
 {
-    return s2n_recv_supported_sig_scheme_list(extension, &conn->handshake_params.client_sig_hash_algs);
+    POSIX_GUARD_RESULT(s2n_signature_algorithms_supported_list_recv(conn, extension));
+    return S2N_SUCCESS;
 }

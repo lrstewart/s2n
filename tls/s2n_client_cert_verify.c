@@ -65,12 +65,8 @@ int s2n_client_cert_verify_send(struct s2n_connection *conn)
     S2N_ASYNC_PKEY_GUARD(conn);
     struct s2n_stuffer *out = &conn->handshake.io;
 
-    if (conn->actual_protocol_version < S2N_TLS12) {
-        POSIX_GUARD(s2n_choose_default_sig_scheme(conn, &conn->handshake_params.client_cert_sig_scheme, S2N_CLIENT));
-    } else {
-        POSIX_GUARD(s2n_stuffer_write_uint16(out, conn->handshake_params.client_cert_sig_scheme->iana_value));
-    }
     const struct s2n_signature_scheme *chosen_sig_scheme = conn->handshake_params.client_cert_sig_scheme;
+    POSIX_GUARD(s2n_stuffer_write_uint16(out, chosen_sig_scheme->iana_value));
 
     /* Use a copy of the hash state since the verify digest computation may modify the running hash state we need later. */
     struct s2n_hash_state *hash_state = &hashes->hash_workspace;

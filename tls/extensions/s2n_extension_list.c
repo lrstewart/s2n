@@ -47,15 +47,37 @@ int s2n_extension_list_recv(s2n_extension_list_id list_type, struct s2n_connecti
     return S2N_SUCCESS;
 }
 
+static S2N_RESULT s2n_extension_get_parsed(const s2n_extension_type *extension_type,
+        s2n_parsed_extensions_list *parsed_extension_list, s2n_parsed_extension **parsed_extension)
+{
+    RESULT_ENSURE_REF(extension_type);
+    RESULT_ENSURE_REF(parsed_extension_list);
+    RESULT_ENSURE_REF(parsed_extension);
+
+    s2n_extension_type_id extension_id = 0;
+    RESULT_GUARD_POSIX(s2n_extension_supported_iana_value_to_id(extension_type->iana_value, &extension_id));
+
+    *parsed_extension = &parsed_extension_list->parsed_extensions[extension_id];
+    return S2N_RESULT_OK;
+}
+
+S2N_RESULT s2n_extension_skip(const s2n_extension_type *extension_type,
+        s2n_parsed_extensions_list *parsed_extension_list)
+{
+    s2n_parsed_extension *parsed_extension = NULL;
+    RESULT_GUARD(s2n_extension_get_parsed(extension_type, parsed_extension_list,
+            &parsed_extension));
+    RESULT_ENSURE_REF(parsed_extension);
+
+    parsed_extension->processed = true;
+    return S2N_RESULT_OK;
+}
+
 static int s2n_extension_process_impl(const s2n_extension_type *extension_type,
         struct s2n_connection *conn, s2n_parsed_extension *parsed_extension)
 {
     POSIX_ENSURE_REF(extension_type);
     POSIX_ENSURE_REF(parsed_extension);
-
-    if (parsed_extension->processed) {
-        return S2N_SUCCESS;
-    }
 
     if (s2n_parsed_extension_is_empty(parsed_extension)) {
         POSIX_GUARD(s2n_extension_is_missing(extension_type, conn));
@@ -70,7 +92,7 @@ static int s2n_extension_process_impl(const s2n_extension_type *extension_type,
     POSIX_GUARD(s2n_stuffer_skip_write(&extension_stuffer, parsed_extension->extension.size));
 
     POSIX_GUARD(s2n_extension_recv(extension_type, conn, &extension_stuffer));
-
+    parsed_extension->processed = true;
     return S2N_SUCCESS;
 }
 
@@ -80,12 +102,11 @@ int s2n_extension_process(const s2n_extension_type *extension_type, struct s2n_c
     POSIX_ENSURE_REF(parsed_extension_list);
     POSIX_ENSURE_REF(extension_type);
 
-    s2n_extension_type_id extension_id;
-    POSIX_GUARD(s2n_extension_supported_iana_value_to_id(extension_type->iana_value, &extension_id));
+    s2n_parsed_extension *parsed_extension = NULL;
+    POSIX_GUARD_RESULT(s2n_extension_get_parsed(extension_type, parsed_extension_list,
+            &parsed_extension));
 
-    s2n_parsed_extension *parsed_extension = &parsed_extension_list->parsed_extensions[extension_id];
     POSIX_GUARD(s2n_extension_process_impl(extension_type, conn, parsed_extension));
-    parsed_extension->processed = true;
     return S2N_SUCCESS;
 }
 
@@ -98,8 +119,16 @@ int s2n_extension_list_process(s2n_extension_list_id list_type, struct s2n_conne
     POSIX_GUARD(s2n_extension_type_list_get(list_type, &extension_type_list));
 
     for (int i = 0; i < extension_type_list->count; i++) {
-        POSIX_GUARD(s2n_extension_process(extension_type_list->extension_types[i],
-                conn, parsed_extension_list));
+        const s2n_extension_type *extension_type = extension_type_list->extension_types[i];
+
+        s2n_parsed_extension *parsed_extension = NULL;
+        POSIX_GUARD_RESULT(s2n_extension_get_parsed(extension_type, parsed_extension_list,
+                &parsed_extension));
+
+        if (parsed_extension->processed) {
+            continue;
+        }
+        POSIX_GUARD(s2n_extension_process(extension_type, conn, parsed_extension_list));
     }
 
     /**

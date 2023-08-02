@@ -27,6 +27,7 @@
 #include "error/s2n_errno.h"
 #include "stuffer/s2n_stuffer.h"
 #include "tls/extensions/s2n_extension_list.h"
+#include "tls/extensions/s2n_client_signature_algorithms.h"
 #include "tls/extensions/s2n_server_key_share.h"
 #include "tls/s2n_alerts.h"
 #include "tls/s2n_auth_selection.h"
@@ -543,6 +544,7 @@ int s2n_process_client_hello(struct s2n_connection *conn)
         conn->actual_protocol_version = MIN(conn->server_protocol_version, S2N_TLS12);
     }
 
+    POSIX_GUARD_RESULT(s2n_extension_skip(&s2n_client_signature_algorithms_extension, &conn->client_hello.extensions));
     POSIX_GUARD(s2n_extension_list_process(S2N_EXTENSION_LIST_CLIENT_HELLO, conn, &conn->client_hello.extensions));
 
     /* After parsing extensions, select a curve and corresponding keyshare to use */
@@ -594,10 +596,8 @@ int s2n_process_client_hello(struct s2n_connection *conn)
         return S2N_SUCCESS;
     }
 
-    /* And set the signature and hash algorithm used for key exchange signatures */
-    POSIX_GUARD(s2n_choose_sig_scheme_from_peer_preference_list(conn,
-            &conn->handshake_params.client_sig_hash_algs,
-            &conn->handshake_params.server_cert_sig_scheme));
+    POSIX_GUARD(s2n_extension_process(&s2n_client_signature_algorithms_extension,
+            conn, &conn->client_hello.extensions));
 
     /* And finally, set the certs specified by the final auth + sig_alg combo. */
     POSIX_GUARD(s2n_select_certs_for_server_auth(conn, &conn->handshake_params.our_chain_and_key));
@@ -831,7 +831,6 @@ int s2n_sslv2_client_hello_recv(struct s2n_connection *conn)
     POSIX_GUARD(s2n_conn_find_name_matching_certs(conn));
 
     POSIX_GUARD(s2n_set_cipher_as_sslv2_server(conn, client_hello->cipher_suites.data, client_hello->cipher_suites.size / S2N_SSLv2_CIPHER_SUITE_LEN));
-    POSIX_GUARD(s2n_choose_default_sig_scheme(conn, &conn->handshake_params.server_cert_sig_scheme, S2N_SERVER));
     POSIX_GUARD(s2n_select_certs_for_server_auth(conn, &conn->handshake_params.our_chain_and_key));
 
     S2N_ERROR_IF(session_id_length > s2n_stuffer_data_available(in), S2N_ERR_BAD_MESSAGE);
