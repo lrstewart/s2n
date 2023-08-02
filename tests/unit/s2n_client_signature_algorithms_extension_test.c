@@ -91,8 +91,8 @@ int main(int argc, char **argv)
         conn->actual_protocol_version = S2N_TLS13;
         EXPECT_SUCCESS(s2n_client_signature_algorithms_extension.recv(conn, &signature_algorithms_extension));
         EXPECT_EQUAL(conn->handshake_params.client_sig_hash_algs.len, sig_hash_algs.len);
-        EXPECT_FAILURE(s2n_choose_sig_scheme_from_peer_preference_list(conn, &conn->handshake_params.client_sig_hash_algs,
-                &conn->handshake_params.server_cert_sig_scheme));
+        EXPECT_ERROR_WITH_ERRNO(s2n_signature_algorithms_supported_list_process(conn),
+                S2N_ERR_INVALID_SIGNATURE_SCHEME);
 
         EXPECT_SUCCESS(s2n_stuffer_free(&signature_algorithms_extension));
         EXPECT_SUCCESS(s2n_connection_free(conn));
@@ -119,8 +119,7 @@ int main(int argc, char **argv)
         /* If a valid algorithm is offered among unknown algorithms, the valid one should be chosen */
         EXPECT_SUCCESS(s2n_client_signature_algorithms_extension.recv(conn, &signature_algorithms_extension));
         EXPECT_EQUAL(conn->handshake_params.client_sig_hash_algs.len, sig_hash_algs.len);
-        EXPECT_SUCCESS(s2n_choose_sig_scheme_from_peer_preference_list(conn, &conn->handshake_params.client_sig_hash_algs,
-                &conn->handshake_params.server_cert_sig_scheme));
+        EXPECT_OK(s2n_signature_algorithms_supported_list_process(conn));
         EXPECT_EQUAL(conn->handshake_params.server_cert_sig_scheme->iana_value, TLS_SIGNATURE_SCHEME_RSA_PKCS1_SHA384);
 
         EXPECT_SUCCESS(s2n_stuffer_free(&signature_algorithms_extension));

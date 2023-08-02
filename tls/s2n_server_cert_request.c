@@ -84,8 +84,7 @@ static int s2n_recv_client_cert_preferences(struct s2n_stuffer *in, s2n_cert_typ
 static int s2n_set_cert_chain_as_client(struct s2n_connection *conn)
 {
     if (s2n_config_get_num_default_certs(conn->config) > 0) {
-        POSIX_GUARD(s2n_choose_sig_scheme_from_peer_preference_list(conn, &conn->handshake_params.server_sig_hash_algs,
-                &conn->handshake_params.client_cert_sig_scheme));
+        POSIX_GUARD_RESULT(s2n_signature_algorithms_supported_list_process(conn));
 
         struct s2n_cert_chain_and_key *cert = s2n_config_get_single_default_cert(conn->config);
         POSIX_ENSURE_REF(cert);
@@ -120,8 +119,8 @@ int s2n_cert_req_recv(struct s2n_connection *conn)
     s2n_cert_type cert_type = 0;
     POSIX_GUARD(s2n_recv_client_cert_preferences(in, &cert_type));
 
-    if (conn->actual_protocol_version == S2N_TLS12) {
-        POSIX_GUARD(s2n_recv_supported_sig_scheme_list(in, &conn->handshake_params.server_sig_hash_algs));
+    if (conn->actual_protocol_version >= S2N_TLS12) {
+        POSIX_GUARD_RESULT(s2n_signature_algorithms_supported_list_recv(conn, in));
     }
 
     uint16_t cert_authorities_len = 0;
