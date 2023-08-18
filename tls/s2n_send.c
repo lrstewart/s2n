@@ -110,7 +110,7 @@ int s2n_flush(struct s2n_connection *conn, s2n_blocked_status *blocked)
 ssize_t s2n_sendv_with_offset_impl(struct s2n_connection *conn, const struct iovec *bufs,
         ssize_t count, ssize_t offs, s2n_blocked_status *blocked)
 {
-    ssize_t user_data_sent = 0, total_size = 0;
+    ssize_t user_data_sent, total_size = 0;
 
     POSIX_ENSURE(s2n_connection_check_io_status(conn, S2N_IO_WRITABLE), S2N_ERR_CLOSED);
     POSIX_ENSURE(!s2n_connection_is_quic_enabled(conn), S2N_ERR_UNSUPPORTED_WITH_QUIC);
@@ -153,6 +153,7 @@ ssize_t s2n_sendv_with_offset_impl(struct s2n_connection *conn, const struct iov
         total_size += bufs[i].iov_len;
     }
     total_size -= offs;
+    /* MARKME why not just acknowledge MIN(total_size, conn->current_user_data_consumed) */
     S2N_ERROR_IF(conn->current_user_data_consumed > total_size, S2N_ERR_SEND_SIZE);
     POSIX_GUARD_RESULT(s2n_early_data_validate_send(conn, total_size));
 
@@ -213,6 +214,8 @@ ssize_t s2n_sendv_with_offset_impl(struct s2n_connection *conn, const struct iov
                 }
             }
 
+            /* MARKME I feel this should be `user_data_sent += conn->current_user_data_consumed`
+             * since it happens in a loop and its possible to have sent some data in the previous loop */
             /* Acknowledge consumed and flushed user data as sent */
             user_data_sent = conn->current_user_data_consumed;
         }

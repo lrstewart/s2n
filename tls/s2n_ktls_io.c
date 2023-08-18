@@ -283,6 +283,10 @@ S2N_RESULT s2n_ktls_send(struct s2n_connection *conn, uint8_t record_type, const
         total_size += msg_iov[i].iov_len;
     }
 
+    // attempt to send until we either send all the data or we become blocked.
+    // but we are not going to allow for configuring max payload size for kTLS (simplified)
+    // so either we will send everything or we will block
+
     while (total_size - user_data_sent) {
         /* TODO update msg_iov based on whats already written. look at s2n_stuffer_writev_bytes */
         bool is_error = s2n_result_is_error(s2n_ktls_sendmsg(conn, record_type, msg_iov, msg_iovlen, blocked, bytes_written));
