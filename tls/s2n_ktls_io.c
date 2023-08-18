@@ -263,3 +263,31 @@ S2N_RESULT s2n_ktls_recvmsg(struct s2n_connection *conn, uint8_t *record_type, u
     *bytes_read = result;
     return S2N_RESULT_OK;
 }
+
+/* D- go over s2n_sendv_with_offset_impl and see if there is logic missing from here
+ * D- test template
+ * D- error handling (closed, io, etc)
+ * - blinding
+ */
+/* TODO currently this method only handles the application data record_type. Alert and
+ * Handshake record_types will be handled in upcoming PRs. */
+S2N_RESULT s2n_ktls_send(struct s2n_connection *conn, uint8_t record_type, const struct iovec *msg_iov,
+        size_t msg_iovlen, s2n_blocked_status *blocked, size_t *bytes_written)
+{
+    RESULT_ENSURE_REF(conn);
+
+    RESULT_ENSURE(s2n_connection_check_io_status(conn, S2N_IO_WRITABLE), S2N_ERR_CLOSED);
+
+    if (s2n_result_is_error(s2n_ktls_sendmsg(conn, record_type, msg_iov, msg_iovlen, blocked, bytes_written))) {
+        if (s2n_errno == S2N_ERR_IO_BLOCKED && *bytes_written > 0) {
+            /* We successfully sent >0 user bytes on the wire, but not the full requested payload
+             * because we became blocked on I/O. Acknowledge the data sent. */
+            return S2N_RESULT_OK;
+        } else {
+            /* propagate s2n_error */
+            return S2N_RESULT_ERROR;
+        }
+    }
+
+    return S2N_RESULT_OK;
+}

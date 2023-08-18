@@ -24,6 +24,7 @@
 #include "tls/s2n_cipher_suites.h"
 #include "tls/s2n_connection.h"
 #include "tls/s2n_handshake.h"
+#include "tls/s2n_ktls.h"
 #include "tls/s2n_post_handshake.h"
 #include "tls/s2n_record.h"
 #include "utils/s2n_blob.h"
@@ -230,9 +231,16 @@ ssize_t s2n_sendv_with_offset(struct s2n_connection *conn, const struct iovec *b
     POSIX_ENSURE(!conn->send_in_use, S2N_ERR_REENTRANCY);
     conn->send_in_use = true;
 
-    ssize_t result = s2n_sendv_with_offset_impl(conn, bufs, count, offs, blocked);
-    POSIX_GUARD_RESULT(s2n_early_data_record_bytes(conn, result));
+    ssize_t result = 0;
+    if (conn->ktls_send_enabled) {
+        size_t bytes_written = 0;
+        POSIX_GUARD_RESULT(s2n_ktls_send(conn, APPLICATION_DATA, bufs, count, blocked, &bytes_written));
+        result = bytes_written;
+    } else {
+        result = s2n_sendv_with_offset_impl(conn, bufs, count, offs, blocked);
+    }
 
+    POSIX_GUARD_RESULT(s2n_early_data_record_bytes(conn, result));
     POSIX_GUARD_RESULT(s2n_connection_dynamic_free_out_buffer(conn));
 
     conn->send_in_use = false;

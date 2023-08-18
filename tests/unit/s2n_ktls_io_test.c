@@ -13,6 +13,7 @@
  * permissions and limitations under the License.
  */
 
+#include "error/s2n_errno.h"
 #include "s2n_test.h"
 #include "testlib/s2n_ktls_test_utils.h"
 #include "testlib/s2n_testlib.h"
@@ -532,6 +533,24 @@ int main(int argc, char **argv)
 
             EXPECT_EQUAL(io_ctx.invoked_count, 1);
         };
+    };
+
+    /* Test s2n_ktls_recvmsg */
+    {
+        /* Safety */
+        {};
+
+        /* Call s2n_ktls_send when write has already been closed */
+        {};
+
+        /* Call s2n_ktls_send and handle a non-blocking error */
+        {};
+
+        /* Handle S2N_ERR_IO_BLOCKED error when 0 bytes have been sent */
+        {};
+
+        /* Handle S2N_ERR_IO_BLOCKED error when >0 bytes have been sent */
+        {};
     };
 
     END_TEST();
