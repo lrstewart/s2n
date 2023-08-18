@@ -264,33 +264,48 @@ S2N_RESULT s2n_ktls_recvmsg(struct s2n_connection *conn, uint8_t *record_type, u
     return S2N_RESULT_OK;
 }
 
+static S2N_RESULT s2n_ktls_send_update_iovec(struct iovec *iovec, size_t iovec_size, size_t bytes_written)
+{
+    return S2N_RESULT_OK
+}
+
 /* D- go over s2n_sendv_with_offset_impl and see if there is logic missing from here
  * D- test template
  * D- error handling (closed, io, etc)
  * - blinding
  */
 /* TODO currently this method only handles the application data record_type. Alert and
- * Handshake record_types will be handled in upcoming PRs. */
+ * Handshake record_types will be handled in upcoming PRs.
+ * TODO: s2n_connection_get_wire_bytes_in / s2n_connection_get_wire_bytes_out / other public getters in s2n.h */
 S2N_RESULT s2n_ktls_send(struct s2n_connection *conn, uint8_t record_type, const struct iovec *msg_iov,
-        size_t msg_iovlen, s2n_blocked_status *blocked, size_t *bytes_written)
+        size_t msg_iovlen, size_t offset, s2n_blocked_status *blocked, size_t *bytes_written)
 {
     RESULT_ENSURE_REF(conn);
 
+    /* TODO: already in s2n_send */
     RESULT_ENSURE(s2n_connection_check_io_status(conn, S2N_IO_WRITABLE), S2N_ERR_CLOSED);
+
+    /* TODO: can get total_size from s2n_send? */
     size_t total_size = 0;
-    size_t user_data_sent = 0;
     for (size_t i = 0; i < msg_iovlen; i++) {
         total_size += msg_iov[i].iov_len;
     }
 
+    /* need to copy msg_iov to modify it to resepect offs */
+    /* TODO update msg_iov based on whats already written. look at s2n_stuffer_writev_bytes */
+    DEFER_CLEANUP(struct s2n_blob iovec_mem = { 0 }, s2n_free);
+    RESULT_GUARD_POSIX(s2n_alloc(&iovec_mem, sizeof(struct iovec) * msg_iovlen));
+    struct iovec *msg_iov_offset = (struct iovec *) iovec_mem.data;
+
     // attempt to send until we either send all the data or we become blocked.
     // but we are not going to allow for configuring max payload size for kTLS (simplified)
     // so either we will send everything or we will block
-
+    size_t user_data_sent = 0;
+    /* TODO: review tracking variables, probably don't update bytes_written until end */
     while (total_size - user_data_sent) {
-        /* TODO update msg_iov based on whats already written. look at s2n_stuffer_writev_bytes */
-        bool is_error = s2n_result_is_error(s2n_ktls_sendmsg(conn, record_type, msg_iov, msg_iovlen, blocked, bytes_written));
-        if (is_error) {
+        s2n_result result = s2n_ktls_sendmsg(conn, record_type, msg_iov, msg_iovlen, blocked, bytes_written);
+        if (s2n_result_is_err(result)) {
+            /* TODO: clean up check */
             if (s2n_errno == S2N_ERR_IO_BLOCKED && (*bytes_written > 0 || user_data_sent > 0)) {
                 /* We successfully sent >0 user bytes on the wire, but not the full requested payload
                  * because we became blocked on I/O. Acknowledge the data sent. */
@@ -298,11 +313,12 @@ S2N_RESULT s2n_ktls_send(struct s2n_connection *conn, uint8_t record_type, const
                 return S2N_RESULT_OK;
             } else {
                 /* propagate s2n_error */
-                return S2N_RESULT_ERROR;
+                return result;
             }
-        } else {
-            user_data_sent += *bytes_written;
         }
+
+        RESULT_GUARD(s2n_ktls_send_update_iovec(msg_iov_offset, msg_iovlen, bytes_written));
+        user_data_sent += *bytes_written;
     }
 
     return S2N_RESULT_OK;

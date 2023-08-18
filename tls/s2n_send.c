@@ -115,6 +115,8 @@ ssize_t s2n_sendv_with_offset_impl(struct s2n_connection *conn, const struct iov
     POSIX_ENSURE(s2n_connection_check_io_status(conn, S2N_IO_WRITABLE), S2N_ERR_CLOSED);
     POSIX_ENSURE(!s2n_connection_is_quic_enabled(conn), S2N_ERR_UNSUPPORTED_WITH_QUIC);
 
+    // TODO: integrate here
+
     /* Flush any pending I/O */
     POSIX_GUARD(s2n_flush(conn, blocked));
 
@@ -137,7 +139,6 @@ ssize_t s2n_sendv_with_offset_impl(struct s2n_connection *conn, const struct iov
         writer = conn->client;
     }
 
-    /* Defensive check against an invalid retry */
     if (offs > 0) {
         const struct iovec *_bufs = bufs;
         ssize_t _count = count;
@@ -237,6 +238,8 @@ ssize_t s2n_sendv_with_offset(struct s2n_connection *conn, const struct iovec *b
     ssize_t result = 0;
     if (conn->ktls_send_enabled) {
         size_t bytes_written = 0;
+        /* TODO: POSIX_GUARD here bad -- function exists so that we can add logic that is guaranteed
+         * to trigger before and after the actual send */
         POSIX_GUARD_RESULT(s2n_ktls_send(conn, APPLICATION_DATA, bufs, count, blocked, &bytes_written));
         result = bytes_written;
     } else {
