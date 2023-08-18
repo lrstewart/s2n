@@ -277,15 +277,27 @@ S2N_RESULT s2n_ktls_send(struct s2n_connection *conn, uint8_t record_type, const
     RESULT_ENSURE_REF(conn);
 
     RESULT_ENSURE(s2n_connection_check_io_status(conn, S2N_IO_WRITABLE), S2N_ERR_CLOSED);
+    size_t total_size = 0;
+    size_t user_data_sent = 0;
+    for (size_t i = 0; i < msg_iovlen; i++) {
+        total_size += msg_iov[i].iov_len;
+    }
 
-    if (s2n_result_is_error(s2n_ktls_sendmsg(conn, record_type, msg_iov, msg_iovlen, blocked, bytes_written))) {
-        if (s2n_errno == S2N_ERR_IO_BLOCKED && *bytes_written > 0) {
-            /* We successfully sent >0 user bytes on the wire, but not the full requested payload
-             * because we became blocked on I/O. Acknowledge the data sent. */
-            return S2N_RESULT_OK;
+    while (total_size - user_data_sent) {
+        /* TODO update msg_iov based on whats already written. look at s2n_stuffer_writev_bytes */
+        bool is_error = s2n_result_is_error(s2n_ktls_sendmsg(conn, record_type, msg_iov, msg_iovlen, blocked, bytes_written));
+        if (is_error) {
+            if (s2n_errno == S2N_ERR_IO_BLOCKED && (*bytes_written > 0 || user_data_sent > 0)) {
+                /* We successfully sent >0 user bytes on the wire, but not the full requested payload
+                 * because we became blocked on I/O. Acknowledge the data sent. */
+                *bytes_written += user_data_sent;
+                return S2N_RESULT_OK;
+            } else {
+                /* propagate s2n_error */
+                return S2N_RESULT_ERROR;
+            }
         } else {
-            /* propagate s2n_error */
-            return S2N_RESULT_ERROR;
+            user_data_sent += *bytes_written;
         }
     }
 
