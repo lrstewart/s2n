@@ -26,6 +26,7 @@
 #include <sys/socket.h>
 
 #include "error/s2n_errno.h"
+#include "tls/s2n_alerts.h"
 #include "tls/s2n_ktls.h"
 #include "utils/s2n_result.h"
 #include "utils/s2n_safety.h"
@@ -322,4 +323,44 @@ ssize_t s2n_ktls_sendv_with_offset(struct s2n_connection *conn, const struct iov
     POSIX_GUARD_RESULT(s2n_ktls_sendmsg(conn, TLS_APPLICATION_DATA, bufs, count,
             blocked, &bytes_written));
     return bytes_written;
+}
+
+S2N_RESULT s2n_ktls_send_alert(struct s2n_connection *conn, s2n_blocked_status *blocked)
+{
+    RESULT_ENSURE_REF(conn);
+    RESULT_ENSURE_REF(blocked);
+
+    *blocked = S2N_BLOCKED_ON_WRITE;
+
+    /* kTLS currently only needs to handle close_notify alerts.
+     * The only non-close_notify fatal alerts that s2n-tls sends are sent during
+     * the handshake. s2n-tls also sends one warning, no_renegotiation, but kTLS
+     * does not currently handle post-handshake messages so we can ignore
+     * renegotiation for now.
+     */
+    uint8_t alert_bytes[] = { S2N_TLS_ALERT_LEVEL_WARNING, S2N_TLS_ALERT_CLOSE_NOTIFY };
+
+    /* Because kTLS only needs to handle close_notify alerts, buffering the alert
+     * is unnecessary. That may change if we need to handle other alerts.
+     *
+     * However, we still need to track our progress sending the alert. Reuse
+     * conn->out without actually allocating any memory.
+     */
+    uint32_t *data_consumed = &conn->out.write_cursor;
+    RESULT_ENSURE_LTE(*data_consumed, sizeof(alert_bytes));
+
+    struct iovec iovec = { 0 };
+    while (*data_consumed < sizeof(alert_bytes)) {
+        iovec.iov_base = alert_bytes + *data_consumed;
+        iovec.iov_len = sizeof(alert_bytes) - *data_consumed;
+
+        size_t bytes_written = 0;
+        RESULT_GUARD(s2n_ktls_sendmsg(conn, TLS_ALERT, &iovec, 1, blocked, &bytes_written));
+        (*data_consumed) += bytes_written;
+    }
+
+    *blocked = S2N_NOT_BLOCKED;
+    conn->alert_sent = true;
+    *data_consumed = 0;
+    return S2N_RESULT_OK;
 }

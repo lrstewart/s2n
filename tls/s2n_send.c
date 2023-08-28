@@ -81,6 +81,11 @@ bool s2n_should_flush(struct s2n_connection *conn, ssize_t total_message_size)
 
 int s2n_flush(struct s2n_connection *conn, s2n_blocked_status *blocked)
 {
+    if (conn->ktls_send_enabled) {
+        /* ktls does not need to flush IO */
+        return 0;
+    }
+
     *blocked = S2N_BLOCKED_ON_WRITE;
 
     /* Write any data that's already pending */

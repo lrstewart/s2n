@@ -858,5 +858,161 @@ int main(int argc, char **argv)
         };
     };
 
+    /* Test s2n_ktls_send_alert */
+    {
+        uint8_t close_notify[] = { S2N_TLS_ALERT_LEVEL_WARNING, S2N_TLS_ALERT_CLOSE_NOTIFY };
+
+        /* Safety */
+        {
+            struct s2n_connection conn = { 0 };
+            s2n_blocked_status blocked = 0;
+
+            EXPECT_ERROR_WITH_ERRNO(
+                    s2n_ktls_send_alert(NULL, &blocked),
+                    S2N_ERR_NULL);
+            EXPECT_ERROR_WITH_ERRNO(
+                    s2n_ktls_send_alert(&conn,  NULL),
+                    S2N_ERR_NULL);
+        };
+
+        /* Safety: Verify assumption that reuse of conn->out to track progress
+         * won't cause invalid stuffer access */
+        {
+            struct s2n_stuffer out = { 0 };
+            EXPECT_OK(s2n_stuffer_validate(&out));
+            out.write_cursor = 1;
+            EXPECT_ERROR(s2n_stuffer_validate(&out));
+
+            uint8_t byte = 0;
+            EXPECT_FAILURE(s2n_stuffer_read_uint8(&out, &byte));
+        }
+
+        /* Test: Successfully send full alert */
+        {
+            DEFER_CLEANUP(struct s2n_connection *conn = s2n_connection_new(S2N_SERVER),
+                    s2n_connection_ptr_free);
+            EXPECT_NOT_NULL(conn);
+
+            DEFER_CLEANUP(struct s2n_test_ktls_io_stuffer out = { 0 },
+                    s2n_ktls_io_stuffer_free);
+            EXPECT_OK(s2n_test_init_ktls_io_stuffer_send(conn, &out));
+
+            s2n_blocked_status blocked = S2N_NOT_BLOCKED;
+            EXPECT_OK(s2n_ktls_send_alert(conn, &blocked));
+            EXPECT_EQUAL(blocked, S2N_NOT_BLOCKED);
+            EXPECT_TRUE(conn->alert_sent);
+            EXPECT_EQUAL(conn->out.write_cursor, 0);
+            EXPECT_EQUAL(out.sendmsg_invoked_count, 1);
+
+            EXPECT_OK(s2n_test_validate_ancillary(&out, TLS_ALERT, S2N_ALERT_LENGTH));
+            EXPECT_OK(s2n_test_validate_data(&out, close_notify, S2N_ALERT_LENGTH));
+        };
+
+        /* Test: Handle IO error from sendmsg */
+        {
+            DEFER_CLEANUP(struct s2n_connection *conn = s2n_connection_new(S2N_SERVER),
+                    s2n_connection_ptr_free);
+            EXPECT_NOT_NULL(conn);
+
+            struct s2n_test_ktls_io_fail_ctx io_ctx = { .errno_code = EINVAL };
+            EXPECT_OK(s2n_ktls_set_sendmsg_cb(conn, s2n_test_ktls_sendmsg_fail, &io_ctx));
+
+            s2n_blocked_status blocked = S2N_NOT_BLOCKED;
+            EXPECT_ERROR_WITH_ERRNO(s2n_ktls_send_alert(conn, &blocked), S2N_ERR_IO);
+            EXPECT_EQUAL(blocked, S2N_BLOCKED_ON_WRITE);
+            EXPECT_FALSE(conn->alert_sent);
+            EXPECT_EQUAL(conn->out.write_cursor, 0);
+            EXPECT_EQUAL(io_ctx.invoked_count, 1);
+        };
+
+        /* Test: IO would block */
+        {
+            DEFER_CLEANUP(struct s2n_connection *conn = s2n_connection_new(S2N_SERVER),
+                    s2n_connection_ptr_free);
+            EXPECT_NOT_NULL(conn);
+
+            struct s2n_test_ktls_io_fail_ctx io_ctx = { .errno_code = EAGAIN };
+            EXPECT_OK(s2n_ktls_set_sendmsg_cb(conn, s2n_test_ktls_sendmsg_fail, &io_ctx));
+
+            s2n_blocked_status blocked = S2N_NOT_BLOCKED;
+            EXPECT_ERROR_WITH_ERRNO(s2n_ktls_send_alert(conn, &blocked), S2N_ERR_IO_BLOCKED);
+            EXPECT_EQUAL(blocked, S2N_BLOCKED_ON_WRITE);
+            EXPECT_FALSE(conn->alert_sent);
+            EXPECT_EQUAL(conn->out.write_cursor, 0);
+            EXPECT_EQUAL(io_ctx.invoked_count, 1);
+        };
+
+        /* Test: Send with offset.
+         *
+         * The alert is only two bytes long, so the only possible offset is 1.
+         */
+        {
+            DEFER_CLEANUP(struct s2n_connection *conn = s2n_connection_new(S2N_SERVER),
+                    s2n_connection_ptr_free);
+            EXPECT_NOT_NULL(conn);
+
+            DEFER_CLEANUP(struct s2n_test_ktls_io_stuffer out = { 0 },
+                    s2n_ktls_io_stuffer_free);
+            EXPECT_OK(s2n_test_init_ktls_io_stuffer_send(conn, &out));
+
+            s2n_blocked_status blocked = S2N_NOT_BLOCKED;
+            conn->out.write_cursor = 1;
+            EXPECT_OK(s2n_ktls_send_alert(conn, &blocked));
+            EXPECT_EQUAL(blocked, S2N_NOT_BLOCKED);
+            EXPECT_TRUE(conn->alert_sent);
+            EXPECT_EQUAL(conn->out.write_cursor, 0);
+            EXPECT_EQUAL(out.sendmsg_invoked_count, 1);
+
+            EXPECT_OK(s2n_test_validate_ancillary(&out, TLS_ALERT, 1));
+            EXPECT_OK(s2n_test_validate_data(&out, &close_notify[1], 1));
+        };
+
+        /* Test: Send with invalid offset (too large). */
+        {
+            DEFER_CLEANUP(struct s2n_connection *conn = s2n_connection_new(S2N_SERVER),
+                    s2n_connection_ptr_free);
+            EXPECT_NOT_NULL(conn);
+
+            DEFER_CLEANUP(struct s2n_test_ktls_io_stuffer out = { 0 },
+                    s2n_ktls_io_stuffer_free);
+            EXPECT_OK(s2n_test_init_ktls_io_stuffer_send(conn, &out));
+
+            s2n_blocked_status blocked = S2N_NOT_BLOCKED;
+            conn->out.write_cursor = 5;
+            EXPECT_ERROR_WITH_ERRNO(s2n_ktls_send_alert(conn, &blocked),
+                    S2N_ERR_SAFETY);
+            EXPECT_EQUAL(blocked, S2N_BLOCKED_ON_WRITE);
+            EXPECT_FALSE(conn->alert_sent);
+            EXPECT_EQUAL(out.sendmsg_invoked_count, 0);
+            EXPECT_OK(s2n_test_records_in_ancillary(&out, 0));
+        };
+
+        /* Test: Partial write
+         *
+         * The alert is only two bytes long, so the only possible partial write is 1.
+         */
+        {
+            DEFER_CLEANUP(struct s2n_connection *conn = s2n_connection_new(S2N_SERVER),
+                    s2n_connection_ptr_free);
+            EXPECT_NOT_NULL(conn);
+
+            DEFER_CLEANUP(struct s2n_test_ktls_io_stuffer out = { 0 },
+                    s2n_ktls_io_stuffer_free);
+            EXPECT_OK(s2n_test_init_ktls_io_stuffer_send(conn, &out));
+            EXPECT_SUCCESS(s2n_stuffer_free(&out.data_buffer));
+            EXPECT_SUCCESS(s2n_stuffer_alloc(&out.data_buffer, 1));
+
+            s2n_blocked_status blocked = S2N_NOT_BLOCKED;
+            EXPECT_ERROR_WITH_ERRNO(s2n_ktls_send_alert(conn, &blocked), S2N_ERR_IO_BLOCKED);
+            EXPECT_EQUAL(blocked, S2N_BLOCKED_ON_WRITE);
+            EXPECT_FALSE(conn->alert_sent);
+            EXPECT_EQUAL(conn->out.write_cursor, 1);
+            EXPECT_EQUAL(out.sendmsg_invoked_count, 2);
+
+            EXPECT_OK(s2n_test_validate_ancillary(&out, TLS_ALERT, 1));
+            EXPECT_OK(s2n_test_validate_data(&out, &close_notify[0], 1));
+        };
+    };
+
     END_TEST();
 }

@@ -16,9 +16,22 @@
 #include "api/s2n.h"
 #include "tls/s2n_alerts.h"
 #include "tls/s2n_connection.h"
+#include "tls/s2n_ktls.h"
 #include "tls/s2n_tls.h"
 #include "utils/s2n_atomic.h"
 #include "utils/s2n_safety.h"
+
+static S2N_RESULT s2n_shutdown_send_close_notify_or_alert(
+        struct s2n_connection *conn, s2n_blocked_status *blocked)
+{
+    if (conn->ktls_send_enabled) {
+        RESULT_GUARD(s2n_ktls_send_alert(conn, blocked));
+        return S2N_RESULT_OK;
+    }
+    RESULT_GUARD(s2n_alerts_write_error_or_close_notify(conn));
+    RESULT_GUARD_POSIX(s2n_flush(conn, blocked));
+    return S2N_RESULT_OK;
+}
 
 static bool s2n_shutdown_expect_close_notify(struct s2n_connection *conn)
 {
@@ -93,8 +106,7 @@ int s2n_shutdown_send(struct s2n_connection *conn, s2n_blocked_status *blocked)
      *# Each party MUST send a "close_notify" alert before closing its write
      *# side of the connection, unless it has already sent some error alert.
      */
-    POSIX_GUARD_RESULT(s2n_alerts_write_error_or_close_notify(conn));
-    POSIX_GUARD(s2n_flush(conn, blocked));
+    POSIX_GUARD_RESULT(s2n_shutdown_send_close_notify_or_alert(conn, blocked));
     return S2N_SUCCESS;
 }
 

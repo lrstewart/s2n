@@ -71,6 +71,9 @@ static S2N_RESULT s2n_ktls_validate(struct s2n_connection *conn, s2n_ktls_mode k
     /* Check if the cipher supports kTLS */
     RESULT_ENSURE(cipher->ktls_supported, S2N_ERR_KTLS_UNSUPPORTED_CONN);
 
+    /* Renegotiation is not supported with kTLS */
+    RESULT_ENSURE(!conn->config->renegotiate_request_cb, S2N_ERR_NO_RENEGOTIATION);
+
     /* kTLS I/O functionality is managed by s2n-tls. kTLS cannot be enabled if the
      * application sets custom I/O (managed_send_io == false means application has
      * set custom I/O).
@@ -79,12 +82,12 @@ static S2N_RESULT s2n_ktls_validate(struct s2n_connection *conn, s2n_ktls_mode k
         case S2N_KTLS_MODE_SEND:
             RESULT_ENSURE(conn->managed_send_io, S2N_ERR_KTLS_MANAGED_IO);
             /* The output stuffer should be empty before enabling kTLS. */
-            RESULT_ENSURE(s2n_stuffer_data_available(&conn->out) == 0, S2N_ERR_RECORD_STUFFER_NEEDS_DRAINING);
+            RESULT_ENSURE(s2n_stuffer_is_consumed(&conn->out) == 0, S2N_ERR_STUFFER_HAS_UNPROCESSED_DATA);
             break;
         case S2N_KTLS_MODE_RECV:
             RESULT_ENSURE(conn->managed_recv_io, S2N_ERR_KTLS_MANAGED_IO);
             /* The input stuffer should be empty before enabling kTLS. */
-            RESULT_ENSURE(s2n_stuffer_data_available(&conn->in) == 0, S2N_ERR_RECORD_STUFFER_NEEDS_DRAINING);
+            RESULT_ENSURE(s2n_stuffer_is_consumed(&conn->in) == 0, S2N_ERR_STUFFER_HAS_UNPROCESSED_DATA);
             break;
         default:
             RESULT_BAIL(S2N_ERR_SAFETY);
@@ -258,6 +261,7 @@ int s2n_connection_ktls_enable_send(struct s2n_connection *conn)
 
     POSIX_ENSURE_REF(conn);
     POSIX_GUARD_RESULT(s2n_ktls_validate(conn, S2N_KTLS_MODE_SEND));
+    POSIX_GUARD(s2n_stuffer_free_without_wipe(&conn->out));
 
     /* If already enabled then return success */
     if (conn->ktls_send_enabled) {
@@ -280,6 +284,7 @@ int s2n_connection_ktls_enable_recv(struct s2n_connection *conn)
 
     POSIX_ENSURE_REF(conn);
     POSIX_GUARD_RESULT(s2n_ktls_validate(conn, S2N_KTLS_MODE_RECV));
+    POSIX_GUARD(s2n_stuffer_free_without_wipe(&conn->in));
 
     /* If already enabled then return success */
     if (conn->ktls_recv_enabled) {
