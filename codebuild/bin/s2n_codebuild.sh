@@ -28,6 +28,8 @@ fi
 if [[ -n "$GCC_VERSION" ]] && [[ "$GCC_VERSION" != "NONE" ]]; then
     alias gcc=$(which gcc-$GCC_VERSION);
 fi
+echo "GCC VERSION:"
+gcc --version
 
 # Find if the environment has more than 8 cores
 JOBS=8
