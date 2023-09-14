@@ -234,10 +234,12 @@ S2N_RESULT s2n_ktls_recvmsg(void *io_context, uint8_t *record_type, uint8_t *buf
      * make sense and a return value of `0` from recvmsg is treated as EOF.
      */
     RESULT_ENSURE_GT(buf_len, 0);
+    RESULT_ENSURE_REF(record_type);
 
     *blocked = S2N_BLOCKED_ON_READ;
     *record_type = 0;
     *bytes_read = 0;
+    *record_type = 0;
     struct iovec msg_iov = {
         .iov_base = buf,
         .iov_len = buf_len
@@ -470,4 +472,52 @@ int s2n_ktls_read_full_record(struct s2n_connection *conn, uint8_t *record_type)
 
     POSIX_GUARD(s2n_stuffer_skip_write(&conn->in, bytes_read));
     return S2N_SUCCESS;
+}
+
+/* During s2n_recv, ktls bypasses conn->in for application data and writes
+ * directly to the application owned output buffer.
+ *
+ * Additionally, we don't need to make multiple calls to recvmsg like we need
+ * to make multiple calls to s2n_read_full_record. recvmsg will return as much
+ * application data as is available regardless of record boundaries.
+ */
+S2N_RESULT s2n_ktls_recv_try_app_data(struct s2n_connection *conn, struct s2n_blob *output,
+        size_t *app_data_read)
+{
+    RESULT_ENSURE_REF(conn);
+    RESULT_ENSURE_REF(output);
+    RESULT_ENSURE_REF(app_data_read);
+    /* When using ktls, we should only read application data once per call */
+    RESULT_ENSURE_EQ(*app_data_read, 0);
+
+    struct iovec msg_iov = {
+        .iov_base = output->data,
+        .iov_len = output->size
+    };
+    struct msghdr msg = {
+        .msg_iov = &msg_iov,
+        .msg_iovlen = 1,
+    };
+
+    /* Call `recvmsg` without a control data buffer.
+     * This will succeed for application data, which doesn't require any control data,
+     * but will fail for control messages like alerts and handshake messages.
+     *
+     * A failure won't consume the control message, so we can retry with
+     * conn->in instead of the application provided buffer as our output.
+     *
+     * We could just use `read` here instead, but use recvmsg for consistency
+     * with the rest of our ktls IO.
+     */
+    ssize_t result = s2n_recvmsg_fn(conn->recv_io_context, &msg);
+    if (result < 0 && errno == EIO) {
+        /* This error indicates that we encountered a control message.
+         * We'll retry and read the control message into conn->in instead.
+         */
+        return S2N_RESULT_OK;
+    }
+    WITH_ERROR_BLINDING(conn, RESULT_GUARD(s2n_io_check_read_result(result)));
+
+    *app_data_read = result;
+    return S2N_RESULT_OK;
 }

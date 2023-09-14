@@ -112,8 +112,14 @@ ssize_t s2n_test_ktls_recvmsg_io_stuffer(void *io_context, struct msghdr *msg)
 
     uint8_t record_type = 0;
     POSIX_GUARD(s2n_stuffer_read_uint8(&io_ctx->ancillary_buffer, &record_type));
-    POSIX_GUARD_RESULT(s2n_ktls_set_control_data(msg, msg->msg_control, msg->msg_controllen,
-            S2N_TLS_GET_RECORD_TYPE, record_type));
+    if (msg->msg_controllen) {
+        POSIX_GUARD_RESULT(s2n_ktls_set_control_data(msg, msg->msg_control, msg->msg_controllen,
+                S2N_TLS_GET_RECORD_TYPE, record_type));
+    } else if(record_type != TLS_APPLICATION_DATA) {
+        POSIX_GUARD(s2n_stuffer_rewind_read(&io_ctx->ancillary_buffer, sizeof(record_type)));
+        errno = EIO;
+        return -1;
+    }
 
     ssize_t bytes_read = 0;
     while (bytes_read < size) {

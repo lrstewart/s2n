@@ -26,6 +26,10 @@
 #include "tls/s2n_tls.h"
 #include "utils/s2n_random.h"
 
+#include <openssl/conf.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+
 /* There are issues with MacOS and FreeBSD so we define the constant ourselves.
  * https://stackoverflow.com/a/34042435 */
 #define S2N_TEST_INADDR_LOOPBACK 0x7f000001 /* 127.0.0.1 */
@@ -358,6 +362,8 @@ int main(int argc, char **argv)
         };
 
         /* Test: s2n_recv with incorrectly encrypted application data
+         *
+         * The bad data should not be skipped due to our handling of EIO.
          *
          * This test closes the connection so should be the last test to use
          * these connections.
