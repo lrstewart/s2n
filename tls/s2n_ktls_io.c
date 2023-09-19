@@ -145,7 +145,7 @@ S2N_RESULT s2n_ktls_set_control_data(struct msghdr *msg, char *buf, size_t buf_s
  *
  * s2n-tls allocates enough space to receive a single cmsghdr. Since this is
  * used to get the record_type when receiving over kTLS (enabled via
- * `s2n_connection_ktls_enable_recv`), the application should not configure
+ * `s2n_connection_ktls_try_enable_recv`), the application should not configure
  * the socket to receive additional control messages. In the event s2n-tls
  * can not retrieve the record_type, it is safer to drop the record.
  */

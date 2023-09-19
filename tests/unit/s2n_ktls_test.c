@@ -24,7 +24,7 @@
 #define S2N_TEST_RECV_FD 55
 
 #if defined(S2N_KTLS_SUPPORTED)
-/* It's difficult to test this method via s2n_connection_ktls_enable_send/recv because
+/* It's difficult to test this method via s2n_connection_ktls_try_enable_send/recv because
  * the key_material is populated via prf, which by definition produces "pseudo-random"
  * output */
 S2N_RESULT s2n_ktls_init_aes128_gcm_crypto_info(struct s2n_connection *conn, s2n_ktls_mode ktls_mode,
@@ -36,16 +36,22 @@ static int s2n_test_setsockopt_noop(int fd, int level, int optname, const void *
     return S2N_SUCCESS;
 }
 
-static int s2n_test_setsockopt_eexist_error(int fd, int level, int optname, const void *optval, socklen_t optlen)
+static int s2n_test_setsockopt_tcp_error(int fd, int level, int optname, const void *optval, socklen_t optlen)
 {
-    errno = EEXIST;
-    return S2N_FAILURE;
+    if (level == S2N_SOL_TCP) {
+        errno = EINVAL;
+        return -1;
+    }
+    return S2N_SUCCESS;
 }
 
-static int s2n_test_setsockopt_error(int fd, int level, int optname, const void *optval, socklen_t optlen)
+static int s2n_test_setsockopt_tls_error(int fd, int level, int optname, const void *optval, socklen_t optlen)
 {
-    errno = EINVAL;
-    return S2N_FAILURE;
+    if (level == S2N_SOL_TLS) {
+        errno = EINVAL;
+        return -1;
+    }
+    return S2N_SUCCESS;
 }
 
 static int s2n_test_setsockopt_tx(int fd, int level, int optname, const void *optval, socklen_t optlen)
@@ -143,8 +149,13 @@ int main(int argc, char **argv)
                 s2n_connection_ptr_free);
         EXPECT_OK(s2n_test_configure_connection_for_ktls(server_conn));
 
-        EXPECT_FAILURE_WITH_ERRNO(s2n_connection_ktls_enable_send(server_conn), S2N_ERR_KTLS_UNSUPPORTED_PLATFORM);
-        EXPECT_FAILURE_WITH_ERRNO(s2n_connection_ktls_enable_recv(server_conn), S2N_ERR_KTLS_UNSUPPORTED_PLATFORM);
+        bool send_enabled = false;
+        EXPECT_SUCCESS(s2n_connection_ktls_try_enable_send(server_conn, &send_enabled));
+        EXPECT_FALSE(send_enabled);
+
+        bool recv_enabled = false;
+        EXPECT_SUCCESS(s2n_connection_ktls_try_enable_recv(server_conn, &recv_enabled));
+        EXPECT_FALSE(recv_enabled);
 
         END_TEST();
     }
@@ -167,45 +178,61 @@ int main(int argc, char **argv)
         EXPECT_FALSE(cipher.ktls_supported);
     };
 
-    /* Test s2n_connection_ktls_enable_recv/send */
+    /* Test s2n_connection_ktls_try_enable_recv/send */
     {
-        /* enable TX/RX */
+        /* Enable for send / recv */
         {
             DEFER_CLEANUP(struct s2n_connection *server_conn = s2n_connection_new(S2N_SERVER),
                     s2n_connection_ptr_free);
             EXPECT_OK(s2n_test_configure_connection_for_ktls(server_conn));
 
             EXPECT_OK(s2n_ktls_set_setsockopt_cb(s2n_test_setsockopt_tx));
-            EXPECT_SUCCESS(s2n_connection_ktls_enable_send(server_conn));
+            bool send_enabled = false;
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_send(server_conn, &send_enabled));
+            EXPECT_TRUE(send_enabled);
             EXPECT_TRUE(server_conn->ktls_send_enabled);
 
             EXPECT_OK(s2n_ktls_set_setsockopt_cb(s2n_test_setsockopt_rx));
-            EXPECT_SUCCESS(s2n_connection_ktls_enable_recv(server_conn));
+            bool recv_enabled = false;
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_recv(server_conn, &recv_enabled));
+            EXPECT_TRUE(recv_enabled);
             EXPECT_TRUE(server_conn->ktls_recv_enabled);
         };
 
-        /* handle setsockopt error */
+        /* Do not enable if error enabling ktls on socket */
         {
             DEFER_CLEANUP(struct s2n_connection *server_conn = s2n_connection_new(S2N_SERVER),
                     s2n_connection_ptr_free);
             EXPECT_OK(s2n_test_configure_connection_for_ktls(server_conn));
-            EXPECT_OK(s2n_ktls_set_setsockopt_cb(s2n_test_setsockopt_eexist_error));
+            EXPECT_OK(s2n_ktls_set_setsockopt_cb(s2n_test_setsockopt_tcp_error));
 
-            /* do expect an error when trying to set keys on the socket */
-            EXPECT_FAILURE_WITH_ERRNO(s2n_connection_ktls_enable_send(server_conn), S2N_ERR_KTLS_ENABLE_CRYPTO);
-            EXPECT_FAILURE_WITH_ERRNO(s2n_connection_ktls_enable_recv(server_conn), S2N_ERR_KTLS_ENABLE_CRYPTO);
+            bool send_enabled = true;
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_send(server_conn, &send_enabled));
+            EXPECT_FALSE(send_enabled);
+
+            bool recv_enabled = true;
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_recv(server_conn, &recv_enabled));
+            EXPECT_FALSE(recv_enabled);
         };
 
-        /* handle setsockopt EEXIST error from TCP_ULP call */
+        /* Error if setting ktls keys on socket fails */
         {
             DEFER_CLEANUP(struct s2n_connection *server_conn = s2n_connection_new(S2N_SERVER),
                     s2n_connection_ptr_free);
             EXPECT_OK(s2n_test_configure_connection_for_ktls(server_conn));
-            EXPECT_OK(s2n_ktls_set_setsockopt_cb(s2n_test_setsockopt_error));
+            EXPECT_OK(s2n_ktls_set_setsockopt_cb(s2n_test_setsockopt_tls_error));
 
-            /* do expect an error when trying to set keys on the socket */
-            EXPECT_FAILURE_WITH_ERRNO(s2n_connection_ktls_enable_send(server_conn), S2N_ERR_KTLS_ULP);
-            EXPECT_FAILURE_WITH_ERRNO(s2n_connection_ktls_enable_recv(server_conn), S2N_ERR_KTLS_ULP);
+            bool send_enabled = true;
+            EXPECT_FAILURE_WITH_ERRNO(
+                    s2n_connection_ktls_try_enable_send(server_conn, &send_enabled),
+                    S2N_ERR_KTLS_ENABLE_CRYPTO);
+            EXPECT_TRUE(send_enabled);
+
+            bool recv_enabled = true;
+            EXPECT_FAILURE_WITH_ERRNO(
+                    s2n_connection_ktls_try_enable_recv(server_conn, &recv_enabled),
+                    S2N_ERR_KTLS_ENABLE_CRYPTO);
+            EXPECT_TRUE(recv_enabled);
         };
 
         /* Noop if kTLS is already enabled */
@@ -215,37 +242,49 @@ int main(int argc, char **argv)
             EXPECT_OK(s2n_test_configure_connection_for_ktls(server_conn));
 
             server_conn->ktls_send_enabled = true;
-            EXPECT_SUCCESS(s2n_connection_ktls_enable_send(server_conn));
+            bool send_enabled = false;
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_send(server_conn, &send_enabled));
+            EXPECT_TRUE(send_enabled);
 
             server_conn->ktls_recv_enabled = true;
-            EXPECT_SUCCESS(s2n_connection_ktls_enable_recv(server_conn));
+            bool recv_enabled = false;
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_recv(server_conn, &recv_enabled));
+            EXPECT_TRUE(recv_enabled);
         };
 
-        /* Fail if handshake is not complete */
+        /* Do not enable if incomplete handshake */
         {
             DEFER_CLEANUP(struct s2n_connection *server_conn = s2n_connection_new(S2N_SERVER),
                     s2n_connection_ptr_free);
             EXPECT_OK(s2n_test_configure_connection_for_ktls(server_conn));
             server_conn->handshake.message_number = 0;
 
-            EXPECT_FAILURE_WITH_ERRNO(s2n_connection_ktls_enable_send(server_conn), S2N_ERR_HANDSHAKE_NOT_COMPLETE);
-            EXPECT_FAILURE_WITH_ERRNO(s2n_connection_ktls_enable_recv(server_conn), S2N_ERR_HANDSHAKE_NOT_COMPLETE);
+            bool send_enabled = true;
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_send(server_conn, &send_enabled));
+            EXPECT_FALSE(send_enabled);
+
+            bool recv_enabled = true;
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_recv(server_conn, &recv_enabled));
+            EXPECT_FALSE(recv_enabled);
         };
 
-        /* Fail if unsupported protocols */
+        /* Do not enable if unsupported protocol version */
         {
             DEFER_CLEANUP(struct s2n_connection *server_conn = s2n_connection_new(S2N_SERVER),
                     s2n_connection_ptr_free);
             EXPECT_OK(s2n_test_configure_connection_for_ktls(server_conn));
-
             server_conn->actual_protocol_version = S2N_TLS13;
-            EXPECT_FAILURE_WITH_ERRNO(s2n_connection_ktls_enable_send(server_conn), S2N_ERR_KTLS_UNSUPPORTED_CONN);
 
-            server_conn->actual_protocol_version = S2N_TLS11;
-            EXPECT_FAILURE_WITH_ERRNO(s2n_connection_ktls_enable_send(server_conn), S2N_ERR_KTLS_UNSUPPORTED_CONN);
+            bool send_enabled = true;
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_send(server_conn, &send_enabled));
+            EXPECT_FALSE(send_enabled);
+
+            bool recv_enabled = true;
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_recv(server_conn, &recv_enabled));
+            EXPECT_FALSE(recv_enabled);
         };
 
-        /* Fail if unsupported ciphers */
+        /* Do not enable for unsupported ciphers */
         {
             /* set kTLS unsupported cipher */
             struct s2n_cipher ktls_temp_unsupported_cipher = {
@@ -261,13 +300,18 @@ int main(int argc, char **argv)
             DEFER_CLEANUP(struct s2n_connection *server_conn = s2n_connection_new(S2N_SERVER),
                     s2n_connection_ptr_free);
             EXPECT_OK(s2n_test_configure_connection_for_ktls(server_conn));
-
             server_conn->secure->cipher_suite = &ktls_temp_unsupported_cipher_suite;
-            EXPECT_FAILURE_WITH_ERRNO(s2n_connection_ktls_enable_send(server_conn), S2N_ERR_KTLS_UNSUPPORTED_CONN);
-            EXPECT_FAILURE_WITH_ERRNO(s2n_connection_ktls_enable_recv(server_conn), S2N_ERR_KTLS_UNSUPPORTED_CONN);
+
+            bool send_enabled = true;
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_send(server_conn, &send_enabled));
+            EXPECT_FALSE(send_enabled);
+
+            bool recv_enabled = true;
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_recv(server_conn, &recv_enabled));
+            EXPECT_FALSE(recv_enabled);
         };
 
-        /* Fail if buffers are not drained */
+        /* Do not enable if buffers not drained */
         {
             DEFER_CLEANUP(struct s2n_connection *server_conn = s2n_connection_new(S2N_SERVER),
                     s2n_connection_ptr_free);
@@ -275,49 +319,62 @@ int main(int argc, char **argv)
 
             uint8_t write_byte = 8;
             uint8_t read_byte = 0;
-            /* write to conn->out buffer and assert error */
-            EXPECT_SUCCESS(s2n_stuffer_write_uint8(&server_conn->out, write_byte));
-            EXPECT_FAILURE_WITH_ERRNO(s2n_connection_ktls_enable_send(server_conn), S2N_ERR_RECORD_STUFFER_NEEDS_DRAINING);
-            /* drain conn->out buffer and assert success case */
-            EXPECT_SUCCESS(s2n_stuffer_read_bytes(&server_conn->out, &read_byte, 1));
-            EXPECT_SUCCESS(s2n_connection_ktls_enable_send(server_conn));
 
-            /* write to conn->in buffer and assert error */
+            bool send_enabled = true;
+            EXPECT_SUCCESS(s2n_stuffer_write_uint8(&server_conn->out, write_byte));
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_send(server_conn, &send_enabled));
+            EXPECT_FALSE(send_enabled);
+
+            EXPECT_SUCCESS(s2n_stuffer_read_bytes(&server_conn->out, &read_byte, 1));
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_send(server_conn, &send_enabled));
+            EXPECT_TRUE(send_enabled);
+
+            bool recv_enabled = true;
             EXPECT_SUCCESS(s2n_stuffer_write_uint8(&server_conn->in, write_byte));
-            EXPECT_FAILURE_WITH_ERRNO(s2n_connection_ktls_enable_recv(server_conn), S2N_ERR_RECORD_STUFFER_NEEDS_DRAINING);
-            /* drain conn->in buffer and assert success case */
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_recv(server_conn, &recv_enabled));
+            EXPECT_FALSE(recv_enabled);
+
             EXPECT_SUCCESS(s2n_stuffer_read_bytes(&server_conn->in, &read_byte, 1));
-            EXPECT_SUCCESS(s2n_connection_ktls_enable_recv(server_conn));
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_recv(server_conn, &recv_enabled));
+            EXPECT_TRUE(recv_enabled);
         };
 
-        /* Fail if not using managed IO for send */
+        /* Do not enable if not using managed IO for send */
         {
             DEFER_CLEANUP(struct s2n_connection *server_conn = s2n_connection_new(S2N_SERVER),
                     s2n_connection_ptr_free);
             EXPECT_OK(s2n_test_configure_connection_for_ktls(server_conn));
+
+            bool enabled = true;
 
             /* expect failure if connection is using custom IO */
             server_conn->managed_send_io = false;
-            EXPECT_FAILURE_WITH_ERRNO(s2n_connection_ktls_enable_send(server_conn), S2N_ERR_KTLS_MANAGED_IO);
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_send(server_conn, &enabled));
+            EXPECT_FALSE(enabled);
 
             /* expect success if connection is NOT using custom IO */
             server_conn->managed_send_io = true;
-            EXPECT_SUCCESS(s2n_connection_ktls_enable_send(server_conn));
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_send(server_conn, &enabled));
+            EXPECT_TRUE(enabled);
         };
 
-        /* Fail if not using managed IO for recv */
+        /* Do not enable if not using managed IO for recv */
         {
             DEFER_CLEANUP(struct s2n_connection *server_conn = s2n_connection_new(S2N_SERVER),
                     s2n_connection_ptr_free);
             EXPECT_OK(s2n_test_configure_connection_for_ktls(server_conn));
 
-            /* recv managed io */
+            bool enabled = true;
+
+            /* expect failure if connection is using custom IO */
             server_conn->managed_recv_io = false;
-            EXPECT_FAILURE_WITH_ERRNO(s2n_connection_ktls_enable_recv(server_conn), S2N_ERR_KTLS_MANAGED_IO);
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_recv(server_conn, &enabled));
+            EXPECT_FALSE(enabled);
 
             /* expect success if connection is NOT using custom IO */
             server_conn->managed_recv_io = true;
-            EXPECT_SUCCESS(s2n_connection_ktls_enable_recv(server_conn));
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_recv(server_conn, &enabled));
+            EXPECT_TRUE(enabled);
         };
     };
 
@@ -385,7 +442,7 @@ int main(int argc, char **argv)
 #endif
     };
 
-    /* selftalk: Success case with a real TLS1.2 negotiated server and client */
+    /* Self-Talk: Success case with a real TLS1.2 negotiated server and client */
     {
         DEFER_CLEANUP(struct s2n_cert_chain_and_key * chain_and_key,
                 s2n_cert_chain_and_key_ptr_free);
@@ -415,12 +472,16 @@ int main(int argc, char **argv)
         EXPECT_EQUAL(server_conn->actual_protocol_version, S2N_TLS12);
 
         /* enable kTLS send */
-        EXPECT_SUCCESS(s2n_connection_ktls_enable_send(server_conn));
+        bool send_enabled = false;
+        EXPECT_SUCCESS(s2n_connection_ktls_try_enable_send(server_conn, &send_enabled));
+        EXPECT_TRUE(send_enabled);
         EXPECT_TRUE(server_conn->ktls_send_enabled);
         EXPECT_NOT_EQUAL(server_conn->send, s2n_socket_write);
 
         /* enable kTLS recv */
-        EXPECT_SUCCESS(s2n_connection_ktls_enable_recv(server_conn));
+        bool recv_enabled = false;
+        EXPECT_SUCCESS(s2n_connection_ktls_try_enable_recv(server_conn, &recv_enabled));
+        EXPECT_TRUE(recv_enabled);
         EXPECT_TRUE(server_conn->ktls_recv_enabled);
         EXPECT_NOT_EQUAL(server_conn->recv, s2n_socket_read);
     };

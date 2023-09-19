@@ -162,15 +162,21 @@ int main(int argc, char **argv)
         }
         EXPECT_OK(s2n_setup_connections(server, client, &io_pair));
 
-        if (s2n_connection_ktls_enable_send(client) == S2N_SUCCESS) {
-            EXPECT_SUCCESS(s2n_connection_ktls_enable_send(server));
+        bool send_enabled = false;
+        EXPECT_SUCCESS(s2n_connection_ktls_try_enable_send(client, &send_enabled));
+        if (send_enabled) {
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_send(server, &send_enabled));
+            EXPECT_TRUE(send_enabled);
         } else {
             EXPECT_FALSE(ktls_expected);
             ktls_send_supported = false;
         }
 
-        if (s2n_connection_ktls_enable_recv(client) == S2N_SUCCESS) {
-            EXPECT_SUCCESS(s2n_connection_ktls_enable_recv(server));
+        bool recv_enabled = false;
+        EXPECT_SUCCESS(s2n_connection_ktls_try_enable_recv(client, &recv_enabled));
+        if (recv_enabled) {
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_recv(server, &recv_enabled));
+            EXPECT_TRUE(recv_enabled);
         } else {
             EXPECT_FALSE(ktls_expected);
             ktls_recv_supported = false;
@@ -205,7 +211,10 @@ int main(int argc, char **argv)
         };
         struct s2n_connection *writer = conns[mode];
         struct s2n_connection *reader = conns[S2N_PEER_MODE(mode)];
-        EXPECT_SUCCESS(s2n_connection_ktls_enable_send(writer));
+
+        bool enabled = false;
+        EXPECT_SUCCESS(s2n_connection_ktls_try_enable_send(writer, &enabled));
+        EXPECT_TRUE(enabled);
 
         s2n_blocked_status blocked = S2N_NOT_BLOCKED;
 
@@ -316,7 +325,10 @@ int main(int argc, char **argv)
         };
         struct s2n_connection *reader = conns[mode];
         struct s2n_connection *writer = conns[S2N_PEER_MODE(mode)];
-        EXPECT_SUCCESS(s2n_connection_ktls_enable_recv(reader));
+
+        bool enabled = false;
+        EXPECT_SUCCESS(s2n_connection_ktls_try_enable_recv(writer, &enabled));
+        EXPECT_TRUE(enabled);
 
         s2n_blocked_status blocked = S2N_NOT_BLOCKED;
 
@@ -426,7 +438,10 @@ int main(int argc, char **argv)
             DEFER_CLEANUP(struct s2n_test_io_pair io_pair = { 0 }, s2n_io_pair_close);
             EXPECT_OK(s2n_new_inet_socket_pair(&io_pair));
             EXPECT_OK(s2n_setup_connections(server, client, &io_pair));
-            EXPECT_SUCCESS(s2n_connection_ktls_enable_recv(reader));
+
+            bool enabled = false;
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_recv(writer, &enabled));
+            EXPECT_TRUE(enabled);
 
             EXPECT_SUCCESS(s2n_shutdown_send(writer, &blocked));
 
@@ -450,7 +465,10 @@ int main(int argc, char **argv)
             DEFER_CLEANUP(struct s2n_test_io_pair io_pair = { 0 }, s2n_io_pair_close);
             EXPECT_OK(s2n_new_inet_socket_pair(&io_pair));
             EXPECT_OK(s2n_setup_connections(server, client, &io_pair));
-            EXPECT_SUCCESS(s2n_connection_ktls_enable_recv(reader));
+
+            bool enabled = false;
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_recv(writer, &enabled));
+            EXPECT_TRUE(enabled);
 
             /* Send some application data for the reader to skip */
             for (size_t i = 0; i < 3; i++) {
@@ -480,7 +498,10 @@ int main(int argc, char **argv)
             DEFER_CLEANUP(struct s2n_test_io_pair io_pair = { 0 }, s2n_io_pair_close);
             EXPECT_OK(s2n_new_inet_socket_pair(&io_pair));
             EXPECT_OK(s2n_setup_connections(server, client, &io_pair));
-            EXPECT_SUCCESS(s2n_connection_ktls_enable_recv(reader));
+
+            bool enabled = false;
+            EXPECT_SUCCESS(s2n_connection_ktls_try_enable_recv(writer, &enabled));
+            EXPECT_TRUE(enabled);
 
             EXPECT_SUCCESS(s2n_io_pair_close_one_end(&io_pair, writer->mode));
 

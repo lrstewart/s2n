@@ -1,0 +1,70 @@
+### Description of changes: 
+
+Currently, an application integrating with ktls needs to write something like:
+```
+if (s2n_connection_ktls_enable_send(conn) == 0) {
+    s2n_sendfile(...);
+} else {
+    s2n_send();
+}
+```
+Enabling ktls is expected to sometimes fail: we don't know whether it's REALLY supported until runtime. If s2n_connection_ktls_enable_* requires ktls support, then we're forcing the application to implement ktls support detection to know whether or not to call s2n_connection_ktls_enable_*. (Currently s2n_connection_ktls_enable_* can also fail for other "expected" reasons like the wrong protocol version or cipher suite).
+
+However, s2n_connection_ktls_enable_* can also encounter fatal errors just like any other s2n-tls API. The most obvious failure point is the second call to setsockopt to configure the tls keys. If that fails, but we've already enabled ktls on the socket, we've put the connection in a bad state and it cannot fall back to application layer tls (I think it'd actually result in properly encrypted records, but with double record headers? Definitely undefined behavior). There's also the more trivial but standard failure mode: null pointers, internal implementation errors, and even theoretically the failure of alloc :)
+
+Instead, s2n_connection_ktls_enable_* needs to behave like a standard API and use an error code to really indicate an error, NOT an expected result. So you'd instead call it like:
+```
+bool ktls_enabled = false;
+EXPECT_SUCCESS(s2n_connection_ktls_try_enable_send(conn, &ktls_enabled));
+if (ktls_enabled) {
+    s2n_sendfile(...);
+} else {
+    s2n_send();
+}
+```
+That ensures that unexpected errors are treated as unexpected errors.
+
+The downside is that we lose our specific "why couldn't we enable ktls" error codes, since s2n_errno shouldn't be checked on success.
+
+### Alternatives:
+#### "Safe to continue"
+If we really want to keep the specific error codes for customers, we could instead try this model:
+```
+s2n_connection_ktls_enable_send(struct s2n_connection *conn, bool *safe_to_continue)
+```
+We'd set "safe_to_continue" before returning an "expected" error like setsockopt failing to enable ktls. For all other errors, safe_to_continue would be false. So you'd call it like:
+```
+bool safe_to_continue = false;
+if (s2n_connection_ktls_enable_send(conn, &safe_to_continue) == 0) {
+    s2n_sendfile(...);
+} else if(safe_to_continue) {
+    s2n_send();
+} else {
+    log(s2n_errno);
+}
+```
+This isn't really a standard model we've follow before and feels pretty hacky.
+
+#### Close the connection
+We could sort of fix this with no API changes. We could close the connection (set conn->read_closed and/or conn->write_closed) whenever s2n_connection_ktls_enable_* encounters a fatal error instead of an expected error. Unfortunately that would mean that the caller wouldn't know that the call REALLY failed until they tried to call s2n_send or s2n_recv and got an "ERR_T_CLOSED" error.
+
+#### Error types
+Technically our error types could (should?) indicate "safe to continue". Unfortunately I'm not sure how often customers use them like that, or how consistent we are with returning the right error types :/ But we could try:
+```
+if (s2n_connection_ktls_enable_send(conn) == 0) {
+    s2n_sendfile(...);
+} else if (s2n_error_get_type(s2n_errno) == S2N_ERR_T_USAGE) {
+    s2n_send();
+} else {
+    log(s2n_errno);
+}
+```
+But this really seems like the least explicit and most easily misused option.
+
+### Testing:
+
+How is this change tested (unit tests, fuzz tests, etc.)? Are there any testing steps to be verified by the reviewer?
+
+Is this a refactor change? If so, how have you proved that the intended behavior hasn't changed?
+
+By submitting this pull request, I confirm that my contribution is made under the terms of the Apache 2.0 license.

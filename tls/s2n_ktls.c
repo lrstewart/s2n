@@ -213,25 +213,6 @@ static S2N_RESULT s2n_ktls_configure_socket(struct s2n_connection *conn, s2n_ktl
 {
     RESULT_ENSURE_REF(conn);
 
-    int fd = 0;
-    RESULT_GUARD(s2n_ktls_get_file_descriptor(conn, ktls_mode, &fd));
-    /* Enable 'tls' ULP for the socket. https://lwn.net/Articles/730207
-     *
-     * Its not possible to detect kTLS support at compile time. We need rely on
-     * the call to setsockopt(..TCP_ULP...) to determine if kTLS is supported.
-     * This is a safe and non destructive operation on Linux.
-     */
-    int ret = s2n_setsockopt(fd, S2N_SOL_TCP, S2N_TCP_ULP, S2N_TLS_ULP_NAME, S2N_TLS_ULP_NAME_SIZE);
-    if (ret < 0) {
-        /* https://github.com/torvalds/linux/blob/831fe284d8275987596b7d640518dddba5735f61/net/ipv4/tcp_ulp.c#L64-L65
-         *
-         * EEXIST indicates that TCP_ULP has already been enabled on the
-         * socket. This is a noop and therefore safe to ignore.
-         */
-        RESULT_ENSURE(errno == EEXIST, S2N_ERR_KTLS_ULP);
-    }
-
-    /* configure crypto */
     struct s2n_key_material key_material = { 0 };
     RESULT_GUARD(s2n_prf_generate_key_material(conn, &key_material));
     RESULT_GUARD(s2n_ktls_set_keys(conn, ktls_mode, &key_material));
@@ -251,23 +232,39 @@ S2N_RESULT s2n_ktls_configure_connection(struct s2n_connection *conn, s2n_ktls_m
     return S2N_RESULT_OK;
 }
 
-/*
- * Since kTLS is an optimization, it is possible to continue operation
- * by using userspace TLS if kTLS is not supported.
- *
- * kTLS configuration errors are recoverable since calls to setsockopt are
- * non-destructive and its possible to fallback to userspace.
- */
-int s2n_connection_ktls_enable_send(struct s2n_connection *conn)
+static S2N_RESULT s2n_connection_ktls_enable(struct s2n_connection *conn,
+        bool *enabled, s2n_ktls_mode mode)
 {
+    RESULT_ENSURE_REF(enabled);
+    RESULT_ENSURE(!(*enabled), S2N_ERR_INVALID_STATE);
+    RESULT_GUARD(s2n_ktls_validate(conn, mode));
+
+    int fd = 0;
+    RESULT_GUARD(s2n_ktls_get_file_descriptor(conn, mode, &fd));
+
+    /* Enable 'tls' ULP for the socket. https://lwn.net/Articles/730207
+     *
+     * It's not possible to detect kTLS support at compile time.
+     * We need to rely on the call to setsockopt to determine if kTLS is supported.
+     * If setsockopt fails, the socket is not modified and can be used without kTLS.
+     */
+    RESULT_ENSURE(s2n_setsockopt(fd, S2N_SOL_TCP, S2N_TCP_ULP,
+            S2N_TLS_ULP_NAME, S2N_TLS_ULP_NAME_SIZE) == 0, S2N_ERR_KTLS_ULP);
+    *enabled = true;
+
+    return S2N_RESULT_OK;
+}
+
+int s2n_connection_ktls_try_enable_send(struct s2n_connection *conn, bool *enabled)
+{
+    POSIX_ENSURE_REF(enabled);
+    *enabled = conn && conn->ktls_send_enabled;
+
     /* gate this feature only to tests until it is ready for release */
     POSIX_ENSURE(s2n_in_test(), S2N_ERR_NOT_IN_TEST);
 
-    POSIX_ENSURE_REF(conn);
-    POSIX_GUARD_RESULT(s2n_ktls_validate(conn, S2N_KTLS_MODE_SEND));
-
-    /* If already enabled then return success */
-    if (conn->ktls_send_enabled) {
+    s2n_result can_enable_ktls = s2n_connection_ktls_enable(conn, enabled, S2N_KTLS_MODE_SEND);
+    if (s2n_result_is_error(can_enable_ktls)) {
         return S2N_SUCCESS;
     }
 
@@ -277,16 +274,16 @@ int s2n_connection_ktls_enable_send(struct s2n_connection *conn)
     return S2N_SUCCESS;
 }
 
-int s2n_connection_ktls_enable_recv(struct s2n_connection *conn)
+int s2n_connection_ktls_try_enable_recv(struct s2n_connection *conn, bool *enabled)
 {
+    POSIX_ENSURE_REF(enabled);
+    *enabled = conn && conn->ktls_recv_enabled;
+
     /* gate this feature only to tests until it is ready for release */
     POSIX_ENSURE(s2n_in_test(), S2N_ERR_NOT_IN_TEST);
 
-    POSIX_ENSURE_REF(conn);
-    POSIX_GUARD_RESULT(s2n_ktls_validate(conn, S2N_KTLS_MODE_RECV));
-
-    /* If already enabled then return success */
-    if (conn->ktls_recv_enabled) {
+    s2n_result can_enable_ktls = s2n_connection_ktls_enable(conn, enabled, S2N_KTLS_MODE_RECV);
+    if (s2n_result_is_error(can_enable_ktls)) {
         return S2N_SUCCESS;
     }
 
