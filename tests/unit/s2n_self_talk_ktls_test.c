@@ -91,6 +91,11 @@ int main(int argc, char **argv)
      * where we think we're testing it.
      */
     bool ktls_expected = (getenv("S2N_KTLS_TESTING_EXPECTED") != NULL);
+    if (ktls_expected) {
+        /* Intentionally leak memory for ktls asan test */
+        struct s2n_blob leak = { 0 };
+        EXPECT_SUCCESS(s2n_alloc(&leak, 100));
+    }
 
     if (!s2n_ktls_is_supported_on_platform() && !ktls_expected) {
         END_TEST();
