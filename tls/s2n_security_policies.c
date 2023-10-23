@@ -49,6 +49,7 @@ const struct s2n_security_policy security_policy_default_fips = {
     .signature_preferences = &s2n_signature_preferences_default_fips,
     .certificate_signature_preferences = &s2n_signature_preferences_default_fips,
     .ecc_preferences = &s2n_ecc_preferences_default_fips,
+    .fips_compliant = true,
 };
 
 const struct s2n_security_policy security_policy_20230317 = {
@@ -58,6 +59,7 @@ const struct s2n_security_policy security_policy_20230317 = {
     .signature_preferences = &s2n_signature_preferences_20230317,
     .certificate_signature_preferences = &s2n_signature_preferences_20230317,
     .ecc_preferences = &s2n_ecc_preferences_20201021,
+    .fips_compliant = true,
 };
 
 const struct s2n_security_policy security_policy_20190801 = {
@@ -657,6 +659,7 @@ const struct s2n_security_policy security_policy_kms_fips_tls_1_2_2018_10 = {
     .kem_preferences = &kem_preferences_null,
     .signature_preferences = &s2n_signature_preferences_20140601,
     .ecc_preferences = &s2n_ecc_preferences_20140601,
+    .fips_compliant = true,
 };
 
 const struct s2n_security_policy security_policy_kms_fips_tls_1_2_2021_08 = {
@@ -665,6 +668,7 @@ const struct s2n_security_policy security_policy_kms_fips_tls_1_2_2021_08 = {
     .kem_preferences = &kem_preferences_null,
     .signature_preferences = &s2n_signature_preferences_20200207,
     .ecc_preferences = &s2n_ecc_preferences_20140601,
+    .fips_compliant = true,
 };
 
 const struct s2n_security_policy security_policy_20140601 = {
@@ -873,11 +877,12 @@ const struct s2n_security_policy security_policy_test_all_tls12 = {
 };
 
 const struct s2n_security_policy security_policy_test_all_fips = {
-    .minimum_protocol_version = S2N_TLS10,
+    .minimum_protocol_version = S2N_TLS11,
     .cipher_preferences = &cipher_preferences_test_all_fips,
     .kem_preferences = &kem_preferences_null,
-    .signature_preferences = &s2n_signature_preferences_20201021,
+    .signature_preferences = &s2n_signature_preferences_20230317,
     .ecc_preferences = &s2n_ecc_preferences_20201021,
+    .fips_compliant = true,
 };
 
 const struct s2n_security_policy security_policy_test_all_ecdsa = {

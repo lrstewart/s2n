@@ -69,6 +69,8 @@ struct s2n_security_policy {
      * https://www.rfc-editor.org/rfc/rfc8446#section-4.2.7
      */
     const struct s2n_ecc_preferences *ecc_preferences;
+
+    bool fips_compliant;
 };
 
 struct s2n_security_policy_selection {
