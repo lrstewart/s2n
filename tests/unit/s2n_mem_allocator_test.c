@@ -95,7 +95,10 @@ void mock_client(struct s2n_test_io_pair *io_pair)
 
     s2n_connection_set_io_pair(conn, io_pair);
 
-    s2n_negotiate(conn, &blocked);
+    fprintf(stdout, "client s2n_negotiate\n");
+    int result = s2n_negotiate(conn, &blocked);
+    fprintf(stdout, "client s2n_negotiate: %i (%s %s)\n",
+            result, s2n_strerror_name(s2n_errno), s2n_strerror_debug(s2n_errno, NULL));
 
     s2n_connection_free_handshake(conn);
 
@@ -106,7 +109,9 @@ void mock_client(struct s2n_test_io_pair *io_pair)
         for (int j = 0; j < i; j++) {
             buffer[j] = 33;
         }
-        s2n_send(conn, buffer, i, &blocked);
+        result = s2n_send(conn, buffer, i, &blocked);
+        fprintf(stdout, "client s2n_send: %i (%s %s)\n",
+                result, s2n_strerror_name(s2n_errno), s2n_strerror_debug(s2n_errno, NULL));
     }
 
     for (int j = 0; j < i; j++) {
@@ -117,21 +122,30 @@ void mock_client(struct s2n_test_io_pair *io_pair)
     s2n_connection_release_buffers(conn);
 
     /* Simulate timeout second conneciton inactivity and tolerate 50 ms error */
+    fprintf(stdout, "client nanosleep\n");
     struct timespec sleep_time = { .tv_sec = timeout, .tv_nsec = 50000000 };
     int r;
     do {
         r = nanosleep(&sleep_time, &sleep_time);
+        fprintf(stdout, "client nanosleep: %i (%i)\n", r, errno);
     } while (r != 0);
     /* Active application bytes consumed is reset to 0 in before writing data. */
     /* Its value should equal to bytes written after writing */
     ssize_t bytes_written = s2n_send(conn, buffer, i, &blocked);
+    fprintf(stdout, "client s2n_send again: %li (%s %s)\n",
+            bytes_written, s2n_strerror_name(s2n_errno), s2n_strerror_debug(s2n_errno, NULL));
     if ((uint64_t) bytes_written != conn->active_application_bytes_consumed) {
+        fprintf(stdout, "client exit early\n");
         exit(0);
     }
 
+    fprintf(stdout, "client s2n_shutdown\n");
     int shutdown_rc = -1;
     while (shutdown_rc != 0) {
+        fprintf(stdout, "client s2n_shutdown poll\n");
         shutdown_rc = s2n_shutdown(conn, &blocked);
+        fprintf(stdout, "client s2n_shutdown: %i (%s %s)\n",
+                shutdown_rc, s2n_strerror_name(s2n_errno), s2n_strerror_debug(s2n_errno, NULL));
     }
 
     s2n_connection_free(conn);
@@ -142,11 +156,13 @@ void mock_client(struct s2n_test_io_pair *io_pair)
 
     s2n_io_pair_close_one_end(io_pair, S2N_CLIENT);
 
+    fprintf(stdout, "client exit\n");
     exit(0);
 }
 
 int main(int argc, char **argv)
 {
+    fprintf(stdout, "TEST START\n");
     s2n_blocked_status blocked;
     int status;
     pid_t pid;
@@ -175,14 +191,17 @@ int main(int argc, char **argv)
         EXPECT_SUCCESS(s2n_io_pair_init(&io_pair));
 
         /* Create a child process */
+        fprintf(stdout, "About to fork\n");
         pid = fork();
         if (pid == 0) {
+            fprintf(stdout, "Forked: client\n");
             /* This is the client process, close the server end of the pipe */
             EXPECT_SUCCESS(s2n_io_pair_close_one_end(&io_pair, S2N_SERVER));
 
             /* Write the fragmented hello message */
             mock_client(&io_pair);
         }
+        fprintf(stdout, "Forked: server\n");
 
         EXPECT_NOT_NULL(cert_chain_pem = malloc(S2N_MAX_TEST_PEM_SIZE));
         EXPECT_NOT_NULL(private_key_pem = malloc(S2N_MAX_TEST_PEM_SIZE));
@@ -219,8 +238,10 @@ int main(int argc, char **argv)
         EXPECT_SUCCESS(s2n_connection_set_io_pair(conn, &io_pair));
 
         /* Negotiate the handshake. */
+        fprintf(stdout, "server s2n_negotiate\n");
         EXPECT_SUCCESS(s2n_negotiate(conn, &blocked));
 
+        fprintf(stdout, "server s2n_recv\n");
         char buffer[0xffff];
         for (int i = 1; i < 0xffff; i += 100) {
             char *ptr = buffer;
@@ -228,10 +249,12 @@ int main(int argc, char **argv)
 
             do {
                 int bytes_read = 0;
+                fprintf(stdout, "server s2n_recv poll: i=%i\n", i);
                 EXPECT_SUCCESS(bytes_read = s2n_recv(conn, ptr, size, &blocked));
 
                 size -= bytes_read;
                 ptr += bytes_read;
+                fprintf(stdout, "server s2n_recv poll: bytes_read=%i size=%i\n", bytes_read, size);
             } while (size);
 
             for (int j = 0; j < i; j++) {
@@ -242,8 +265,10 @@ int main(int argc, char **argv)
             EXPECT_SUCCESS(s2n_connection_release_buffers(conn));
         }
 
+        fprintf(stdout, "server s2n_shutdown\n");
         int shutdown_rc = -1;
         do {
+            fprintf(stdout, "server calling s2n_shutdown\n");
             shutdown_rc = s2n_shutdown(conn, &blocked);
             EXPECT_TRUE(shutdown_rc == 0 || (errno == EAGAIN && blocked));
         } while (shutdown_rc != 0);
@@ -253,8 +278,10 @@ int main(int argc, char **argv)
         }
 
         /* Clean up */
+        fprintf(stdout, "Waiting for %i\n", pid);
         EXPECT_EQUAL(waitpid(-1, &status, 0), pid);
         EXPECT_EQUAL(status, 0);
+        fprintf(stdout, "server s2n_io_pair_close_one_end\n");
         EXPECT_SUCCESS(s2n_io_pair_close_one_end(&io_pair, S2N_SERVER));
         free(cert_chain_pem);
         free(private_key_pem);
