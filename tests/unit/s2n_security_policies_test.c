@@ -20,6 +20,7 @@
 #include "pq-crypto/s2n_pq.h"
 #include "s2n_test.h"
 #include "testlib/s2n_testlib.h"
+#include "tls/s2n_auth_selection.h"
 #include "tls/s2n_kem.h"
 #include "tls/s2n_signature_algorithms.h"
 
@@ -98,38 +99,50 @@ int main(int argc, char **argv)
             }
         }
 
-        /* TLS 1.3 Cipher suites have TLS 1.3 Signature Algorithms Test */
-        bool has_tls_13_cipher = false;
+        /* If a policy has TLS1.3 cipher suites that we may select, it must also
+         * have at least one TLS1.3 signature algorithm
+         */
+        bool has_tls13_cipher = false;
         for (size_t i = 0; i < security_policy->cipher_preferences->count; i++) {
             if (security_policy->cipher_preferences->suites[i]->minimum_required_tls_version == S2N_TLS13) {
-                has_tls_13_cipher = true;
+                has_tls13_cipher = true;
                 break;
             }
         }
+        if (has_tls13_cipher) {
+            bool certs_supported[S2N_CERT_TYPE_COUNT] = { 0 };
+            bool certs_supported_for_tls13[S2N_CERT_TYPE_COUNT] = { 0 };
 
-        if (!has_tls_13_cipher) {
-            continue;
-        }
+            for (size_t i = 0; i < security_policy->signature_preferences->count; i++) {
+                int min = security_policy->signature_preferences->signature_schemes[i]->minimum_protocol_version;
+                int max = security_policy->signature_preferences->signature_schemes[i]->maximum_protocol_version;
+                s2n_signature_algorithm sig_alg = security_policy->signature_preferences->signature_schemes[i]->sig_alg;
 
-        bool has_tls_13_sig_alg = false;
-        bool has_rsa_pss = false;
+                bool scheme_supports_tls13 = (min <= S2N_TLS13)
+                        && (max >= S2N_TLS13 || max == S2N_UNKNOWN_PROTOCOL_VERSION);
 
-        for (size_t i = 0; i < security_policy->signature_preferences->count; i++) {
-            int min = security_policy->signature_preferences->signature_schemes[i]->minimum_protocol_version;
-            int max = security_policy->signature_preferences->signature_schemes[i]->maximum_protocol_version;
-            s2n_signature_algorithm sig_alg = security_policy->signature_preferences->signature_schemes[i]->sig_alg;
-
-            if (min == S2N_TLS13 || max >= S2N_TLS13) {
-                has_tls_13_sig_alg = true;
+                s2n_pkey_type cert_type = 0;
+                EXPECT_SUCCESS(s2n_get_cert_type_for_sig_alg(sig_alg, &cert_type));
+                certs_supported[cert_type] = true;
+                certs_supported_for_tls13[cert_type] |= scheme_supports_tls13;
             }
 
-            if (sig_alg == S2N_SIGNATURE_RSA_PSS_PSS || sig_alg == S2N_SIGNATURE_RSA_PSS_RSAE) {
-                has_rsa_pss = true;
+            /* For any certificate type we support in TLS1.2, we should support
+             * the same type in TLS1.3. Otherwise, connections could fail depending
+             * on which version is selected.
+             */
+            bool any_cert_supported = false;
+            for (size_t i = 0; i < S2N_CERT_TYPE_COUNT; i++) {
+                any_cert_supported |= certs_supported[i];
+                /* RSA-PSS certificates are only supported in TLS1.3 */
+                if (i == S2N_PKEY_TYPE_RSA_PSS) {
+                    continue;
+                }
+                /* All other certificates should not depend on protocol version */
+                EXPECT_EQUAL(certs_supported[i], certs_supported_for_tls13[i]);
             }
+            EXPECT_TRUE(any_cert_supported);
         }
-
-        EXPECT_TRUE(has_tls_13_sig_alg);
-        EXPECT_TRUE(has_rsa_pss);
     }
 
     const struct s2n_security_policy *security_policy = NULL;

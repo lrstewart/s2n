@@ -56,7 +56,7 @@ int s2n_get_auth_method_for_cert_type(s2n_pkey_type cert_type, s2n_authenticatio
     POSIX_BAIL(S2N_ERR_CERT_TYPE_UNSUPPORTED);
 }
 
-static int s2n_get_cert_type_for_sig_alg(s2n_signature_algorithm sig_alg, s2n_pkey_type *cert_type)
+int s2n_get_cert_type_for_sig_alg(s2n_signature_algorithm sig_alg, s2n_pkey_type *cert_type)
 {
     switch (sig_alg) {
         case S2N_SIGNATURE_RSA_PSS_RSAE:
