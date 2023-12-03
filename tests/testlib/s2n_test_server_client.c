@@ -32,11 +32,6 @@ static S2N_RESULT s2n_validate_negotiate_result(bool success, bool peer_is_done,
         return S2N_RESULT_ERROR;
     }
 
-    /* If we're blocked but our peer is done writing, propagate the error. */
-    if (peer_is_done) {
-        return S2N_RESULT_ERROR;
-    }
-
     *is_done = false;
     return S2N_RESULT_OK;
 }

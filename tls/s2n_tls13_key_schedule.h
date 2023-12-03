@@ -17,5 +17,7 @@
 
 #include "utils/s2n_result.h"
 
+S2N_RESULT s2n_tls13_key_schedule_get_app_traffic_key(struct s2n_connection *conn,
+        s2n_mode mode, struct s2n_blob *key_out);
 S2N_RESULT s2n_tls13_key_schedule_update(struct s2n_connection *conn);
 S2N_RESULT s2n_tls13_key_schedule_reset(struct s2n_connection *conn);

@@ -132,7 +132,7 @@ int main(int argc, char **argv)
     DEFER_CLEANUP(struct s2n_config *config = s2n_config_new(), s2n_config_ptr_free);
     EXPECT_SUCCESS(s2n_config_add_cert_chain_and_key_to_store(config, chain_and_key));
     EXPECT_SUCCESS(s2n_config_set_unsafe_for_testing(config));
-    EXPECT_SUCCESS(s2n_config_set_cipher_preferences(config, "default"));
+    EXPECT_SUCCESS(s2n_config_set_cipher_preferences(config, "default_tls13"));
 
     /* Even if we detected ktls support at compile time, enabling ktls
      * can fail at runtime if the system is not properly configured.
@@ -504,6 +504,8 @@ int main(int argc, char **argv)
         } test_cases[] = {
             { .cipher = &s2n_aes128_gcm, .cipher_suite = &s2n_ecdhe_rsa_with_aes_128_gcm_sha256 },
             { .cipher = &s2n_aes256_gcm, .cipher_suite = &s2n_ecdhe_rsa_with_aes_256_gcm_sha384 },
+            { .cipher = &s2n_aes128_gcm, .cipher_suite = &s2n_tls13_aes_128_gcm_sha256 },
+            { .cipher = &s2n_aes256_gcm, .cipher_suite = &s2n_tls13_aes_256_gcm_sha384 },
         };
 
         /* Ensure that all supported ciphers are tested */

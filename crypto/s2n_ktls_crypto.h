@@ -25,6 +25,7 @@
     typedef struct tls12_crypto_info_aes_gcm_256 s2n_ktls_crypto_info_tls12_aes_gcm_256;
 #else
     #define TLS_1_2_VERSION 0
+    #define TLS_1_3_VERSION 0
 
     #define TLS_CIPHER_AES_GCM_128 0
     typedef struct s2n_ktls_crypto_info_stub s2n_ktls_crypto_info_tls12_aes_gcm_128;
@@ -51,6 +52,7 @@ struct s2n_ktls_crypto_info_stub {
 struct s2n_ktls_crypto_info {
     struct s2n_blob value;
     union {
+        uint16_t version;
         s2n_ktls_crypto_info_tls12_aes_gcm_128 aes_gcm_128;
         s2n_ktls_crypto_info_tls12_aes_gcm_256 aes_gcm_256;
     } ciphers;

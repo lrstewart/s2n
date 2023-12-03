@@ -18,6 +18,7 @@
 #include "crypto/s2n_ktls_crypto.h"
 #include "tls/s2n_prf.h"
 #include "tls/s2n_tls.h"
+#include "tls/s2n_tls13_key_schedule.h"
 
 /* Used for overriding setsockopt calls in testing */
 s2n_setsockopt_fn s2n_setsockopt = setsockopt;
@@ -54,13 +55,8 @@ static S2N_RESULT s2n_ktls_validate(struct s2n_connection *conn, s2n_ktls_mode k
     /* kTLS enable should only be called once the handshake has completed. */
     RESULT_ENSURE(is_handshake_complete(conn), S2N_ERR_HANDSHAKE_NOT_COMPLETE);
 
-    /* TODO support TLS 1.3
-     *
-     * TLS 1.3 support requires sending the KeyUpdate message when the cryptographic
-     * key usage limits are met. However, this is currently only possible by applying a
-     * kernel patch to support this functionality.
-     */
-    RESULT_ENSURE(conn->actual_protocol_version == S2N_TLS12, S2N_ERR_KTLS_UNSUPPORTED_CONN);
+    RESULT_ENSURE(conn->actual_protocol_version == S2N_TLS12
+            || conn->actual_protocol_version == S2N_TLS13, S2N_ERR_KTLS_UNSUPPORTED_CONN);
 
     /* Check if the cipher supports kTLS */
     const struct s2n_cipher *cipher = NULL;
@@ -143,6 +139,18 @@ static S2N_RESULT s2n_ktls_crypto_info_init(struct s2n_connection *conn, s2n_ktl
     struct s2n_crypto_parameters *secure = conn->secure;
     RESULT_ENSURE_REF(secure);
 
+    /* The crypto_info always starts with the version */
+    switch(conn->actual_protocol_version) {
+        case S2N_TLS13:
+            crypto_info->ciphers.version = TLS_1_3_VERSION;
+            break;
+        case S2N_TLS12:
+            crypto_info->ciphers.version = TLS_1_2_VERSION;
+            break;
+        default:
+            RESULT_BAIL(S2N_ERR_KTLS_UNSUPPORTED_CONN);
+    }
+
     /* In order to avoid storing the encryption keys on the connection, we instead
      * regenerate them when required by ktls.
      *
@@ -150,25 +158,33 @@ static S2N_RESULT s2n_ktls_crypto_info_init(struct s2n_connection *conn, s2n_ktl
      * on the connection instead. Some record algorithms (like CBC) mutate the
      * "implicit_iv" when writing records, so the IV may change after generation.
      */
-    struct s2n_key_material key_material = { 0 };
-    RESULT_GUARD(s2n_prf_generate_key_material(conn, &key_material));
+    struct s2n_key_material tls12_key_material = { 0 };
+    if (conn->actual_protocol_version == S2N_TLS12) {
+        RESULT_GUARD(s2n_prf_generate_key_material(conn, &tls12_key_material));
+    }
 
     bool is_sending_key = (ktls_mode == S2N_KTLS_MODE_SEND);
     s2n_mode key_mode = (is_sending_key) ? conn->mode : S2N_PEER_MODE(conn->mode);
 
     struct s2n_ktls_crypto_info_inputs inputs = { 0 };
     if (key_mode == S2N_CLIENT) {
-        inputs.key = key_material.client_key;
+        inputs.key = tls12_key_material.client_key;
         RESULT_GUARD_POSIX(s2n_blob_init(&inputs.iv,
                 secure->client_implicit_iv, sizeof(secure->client_implicit_iv)));
         RESULT_GUARD_POSIX(s2n_blob_init(&inputs.seq,
                 secure->client_sequence_number, sizeof(secure->client_sequence_number)));
     } else {
-        inputs.key = key_material.server_key;
+        inputs.key = tls12_key_material.server_key;
         RESULT_GUARD_POSIX(s2n_blob_init(&inputs.iv,
                 secure->server_implicit_iv, sizeof(secure->server_implicit_iv)));
         RESULT_GUARD_POSIX(s2n_blob_init(&inputs.seq,
                 secure->server_sequence_number, sizeof(secure->server_sequence_number)));
+    }
+
+    uint8_t tls13_key_bytes[S2N_TLS13_SECRET_MAX_LEN] = { 0 };
+    if (conn->actual_protocol_version == S2N_TLS13) {
+        RESULT_GUARD_POSIX(s2n_blob_init(&inputs.key, tls13_key_bytes, sizeof(tls13_key_bytes)));
+        RESULT_GUARD(s2n_tls13_key_schedule_get_app_traffic_key(conn, key_mode, &inputs.key));
     }
 
     const struct s2n_cipher *cipher = NULL;

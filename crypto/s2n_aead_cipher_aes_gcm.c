@@ -384,7 +384,6 @@ static S2N_RESULT s2n_aead_cipher_aes128_gcm_set_ktls_info(struct s2n_ktls_crypt
     RESULT_ENSURE_REF(out);
 
     s2n_ktls_crypto_info_tls12_aes_gcm_128 *crypto_info = &out->ciphers.aes_gcm_128;
-    crypto_info->info.version = TLS_1_2_VERSION;
     crypto_info->info.cipher_type = TLS_CIPHER_AES_GCM_128;
 
     RESULT_ENSURE_LTE(sizeof(crypto_info->key), in->key.size);
@@ -418,7 +417,6 @@ static S2N_RESULT s2n_aead_cipher_aes256_gcm_set_ktls_info(
     RESULT_ENSURE_REF(out);
 
     s2n_ktls_crypto_info_tls12_aes_gcm_256 *crypto_info = &out->ciphers.aes_gcm_256;
-    crypto_info->info.version = TLS_1_2_VERSION;
     crypto_info->info.cipher_type = TLS_CIPHER_AES_GCM_256;
 
     RESULT_ENSURE_LTE(sizeof(crypto_info->key), in->key.size);
@@ -437,8 +435,7 @@ static S2N_RESULT s2n_aead_cipher_aes256_gcm_set_ktls_info(
      *# beginning of the security association, and then remains constant
      *# for the life of the security association.
      */
-    RESULT_ENSURE_LTE(sizeof(crypto_info->salt), in->iv.size);
-    RESULT_CHECKED_MEMCPY(crypto_info->salt, in->iv.data, sizeof(crypto_info->salt));
+    RESULT_CHECKED_MEMCPY(crypto_info->salt, in->iv.data + 8, sizeof(crypto_info->salt));
 
     RESULT_GUARD_POSIX(s2n_blob_init(&out->value, (uint8_t *) (void *) crypto_info,
             sizeof(s2n_ktls_crypto_info_tls12_aes_gcm_256)));
@@ -494,6 +491,7 @@ const struct s2n_cipher s2n_tls13_aes128_gcm = {
     .set_encryption_key = s2n_aead_cipher_aes128_gcm_set_encryption_key_tls13,
     .set_decryption_key = s2n_aead_cipher_aes128_gcm_set_decryption_key_tls13,
     .destroy_key = s2n_aead_cipher_aes_gcm_destroy_key,
+    .set_ktls_info = s2n_aead_cipher_aes128_gcm_set_ktls_info,
 };
 
 const struct s2n_cipher s2n_tls13_aes256_gcm = {
@@ -510,4 +508,5 @@ const struct s2n_cipher s2n_tls13_aes256_gcm = {
     .set_encryption_key = s2n_aead_cipher_aes256_gcm_set_encryption_key_tls13,
     .set_decryption_key = s2n_aead_cipher_aes256_gcm_set_decryption_key_tls13,
     .destroy_key = s2n_aead_cipher_aes_gcm_destroy_key,
+    .set_ktls_info = s2n_aead_cipher_aes256_gcm_set_ktls_info,
 };

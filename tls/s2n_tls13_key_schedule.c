@@ -47,7 +47,8 @@ static S2N_RESULT s2n_zero_sequence_number(struct s2n_connection *conn, s2n_mode
     return S2N_RESULT_OK;
 }
 
-static S2N_RESULT s2n_set_key(struct s2n_connection *conn, s2n_extract_secret_type_t secret_type, s2n_mode mode)
+static S2N_RESULT s2n_set_key_get(struct s2n_connection *conn, s2n_extract_secret_type_t secret_type,
+        s2n_mode mode, struct s2n_blob *key)
 {
     RESULT_ENSURE_REF(conn);
     RESULT_ENSURE_REF(conn->secure);
@@ -114,11 +115,10 @@ static S2N_RESULT s2n_set_key(struct s2n_connection *conn, s2n_extract_secret_ty
      *#
      *# [sender]_write_key = HKDF-Expand-Label(Secret, "key", "", key_length)
      **/
-    struct s2n_blob key = { 0 };
-    uint8_t key_bytes[S2N_TLS13_SECRET_MAX_LEN] = { 0 };
-    RESULT_GUARD_POSIX(s2n_blob_init(&key, key_bytes, key_size));
+    RESULT_ENSURE_LTE(key_size, key->size);
+    key->size = key_size;
     RESULT_GUARD_POSIX(s2n_hkdf_expand_label(&hmac, hmac_alg,
-            &secret, key_purpose, &s2n_zero_length_context, &key));
+            &secret, key_purpose, &s2n_zero_length_context, key));
     /**
      *= https://tools.ietf.org/rfc/rfc8446#section-7.3
      *# [sender]_write_iv  = HKDF-Expand-Label(Secret, "iv", "", iv_length)
@@ -130,9 +130,9 @@ static S2N_RESULT s2n_set_key(struct s2n_connection *conn, s2n_extract_secret_ty
 
     bool is_sending_secret = (mode == conn->mode);
     if (is_sending_secret) {
-        RESULT_GUARD_POSIX(cipher->set_encryption_key(session_key, &key));
+        RESULT_GUARD_POSIX(cipher->set_encryption_key(session_key, key));
     } else {
-        RESULT_GUARD_POSIX(cipher->set_decryption_key(session_key, &key));
+        RESULT_GUARD_POSIX(cipher->set_decryption_key(session_key, key));
     }
 
     /**
@@ -144,6 +144,22 @@ static S2N_RESULT s2n_set_key(struct s2n_connection *conn, s2n_extract_secret_ty
      */
     RESULT_GUARD(s2n_zero_sequence_number(conn, mode));
 
+    return S2N_RESULT_OK;
+}
+
+S2N_RESULT s2n_tls13_key_schedule_get_app_traffic_key(struct s2n_connection *conn,
+        s2n_mode mode, struct s2n_blob *key_out)
+{
+    RESULT_GUARD(s2n_set_key_get(conn, S2N_MASTER_SECRET, mode, key_out));
+    return S2N_RESULT_OK;
+}
+
+static S2N_RESULT s2n_set_key(struct s2n_connection *conn, s2n_extract_secret_type_t secret_type, s2n_mode mode)
+{
+    struct s2n_blob key = { 0 };
+    uint8_t key_bytes[S2N_TLS13_SECRET_MAX_LEN] = { 0 };
+    RESULT_GUARD_POSIX(s2n_blob_init(&key, key_bytes, sizeof(key_bytes)));
+    RESULT_GUARD(s2n_set_key_get(conn, secret_type, mode, &key));
     return S2N_RESULT_OK;
 }
 
