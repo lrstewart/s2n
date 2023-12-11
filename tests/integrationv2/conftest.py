@@ -12,14 +12,16 @@ def pytest_addoption(parser):
                      default="off", type=str, choices=['off', 'baseline', 'delta'], help="Use Criterion provider in one of 3 modes: [off,baseline,delta]")
 
 
+
+
+
+
 def pytest_configure(config):
     """
     pytest hook that adds the function to deselect tests if the parameters
     don't makes sense.
     """
-    config.addinivalue_line(
-        "markers", "uncollect_if(*, func): function to unselect tests from parametrization"
-    )
+    config.addinivalue_line("markers", "uncollect_if(*, func): function to unselect tests from parametrization")
 
     no_pq = config.getoption('no-pq', 0)
     fips_mode = config.getoption('fips-mode', 0)
@@ -33,6 +35,7 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(config, items):
+
     """
     pytest hook to modify the test arguments to call the uncollect function.
     """
