@@ -84,14 +84,6 @@ ssize_t s2n_test_ktls_recvmsg_io_stuffer_and_ctrunc(void *io_context, struct msg
     return ret;
 }
 
-static S2N_RESULT s2n_assert_seq_num_equal(struct s2n_blob actual_blob, uint64_t expected)
-{
-    uint64_t actual = 0;
-    RESULT_GUARD_POSIX(s2n_sequence_number_to_uint64(&actual_blob, &actual));
-    RESULT_ENSURE(actual == expected, S2N_ERR_TEST_ASSERTION);
-    return S2N_RESULT_OK;
-}
-
 int main(int argc, char **argv)
 {
     BEGIN_TEST();
@@ -1205,17 +1197,11 @@ int main(int argc, char **argv)
 
     /* Test: key encryption limit tracked */
     {
-        uint8_t large_test_data[S2N_TLS_MAXIMUM_FRAGMENT_LENGTH * 10] = { 0 };
-        const size_t large_test_data_records = sizeof(large_test_data) / S2N_TLS_MAXIMUM_FRAGMENT_LENGTH;
-        /* For simplicity, keep our test data a positive even multiple of the max frag size */
-        EXPECT_TRUE(sizeof(large_test_data) % S2N_TLS_MAXIMUM_FRAGMENT_LENGTH == 0);
-        EXPECT_TRUE(large_test_data_records > 0);
-        const size_t test_encryption_limit = large_test_data_records;
-
-        struct s2n_record_algorithm test_record_alg = *s2n_tls13_aes_128_gcm_sha256.record_alg;
-        test_record_alg.encryption_limit = test_encryption_limit;
-        struct s2n_cipher_suite test_cipher_suite = s2n_tls13_aes_128_gcm_sha256;
-        test_cipher_suite.record_alg = &test_record_alg;
+        struct s2n_cipher_suite *test_cipher_suite = &s2n_tls13_aes_128_gcm_sha256;
+        EXPECT_NOT_NULL(test_cipher_suite->record_alg);
+        uint64_t encryption_limit = s2n_tls13_aes_128_gcm_sha256.record_alg->encryption_limit;
+        EXPECT_TRUE(UINT64_MAX / S2N_TLS_MAXIMUM_FRAGMENT_LENGTH >= encryption_limit);
+        uint64_t encryption_limit_bytes = encryption_limit * S2N_TLS_MAXIMUM_FRAGMENT_LENGTH;
 
         for (s2n_mode mode = 0; mode <= 1; mode++) {
             DEFER_CLEANUP(struct s2n_connection *conn = s2n_connection_new(mode),
@@ -1224,96 +1210,94 @@ int main(int argc, char **argv)
             EXPECT_OK(s2n_ktls_set_sendmsg_cb(conn, s2n_test_ktls_sendmsg_mark_all_sent, conn));
             conn->ktls_send_enabled = true;
             EXPECT_NOT_NULL(conn->secure);
-            conn->secure->cipher_suite = &test_cipher_suite;
+            conn->secure->cipher_suite = test_cipher_suite;
             conn->actual_protocol_version = S2N_TLS13;
 
             s2n_blocked_status blocked = S2N_NOT_BLOCKED;
 
-            /* Test: Sequence number tracked correctly */
+            /* Test: All connections start with zero bytes sent */
+            EXPECT_EQUAL(conn->wire_bytes_out, 0);
+
+            /* Test: Bytes sent tracked correctly */
             {
-                DEFER_CLEANUP(struct s2n_blob seq_num = { 0 }, s2n_blob_zero);
-                EXPECT_OK(s2n_connection_get_sequence_number(conn, conn->mode, &seq_num));
-
-                /* Test: All connections start with zero records sent */
-                uint64_t expected_seq_num = 0;
-                EXPECT_OK(s2n_assert_seq_num_equal(seq_num, expected_seq_num));
-
                 /* Test: Send no data */
-                EXPECT_EQUAL(s2n_send(conn, large_test_data, 0, &blocked), 0);
-                EXPECT_OK(s2n_assert_seq_num_equal(seq_num, expected_seq_num));
+                uint64_t expected_bytes = 0;
+                EXPECT_EQUAL(s2n_send(conn, test_data, 0, &blocked), 0);
+                EXPECT_EQUAL(conn->wire_bytes_out, 0);
 
-                /* Test: Send one minimum sized record */
-                expected_seq_num++;
-                EXPECT_EQUAL(s2n_send(conn, large_test_data, 1, &blocked), 1);
-                EXPECT_OK(s2n_assert_seq_num_equal(seq_num, expected_seq_num));
+                /* Test: Send one byte */
+                expected_bytes = 1;
+                EXPECT_EQUAL(s2n_send(conn, test_data, 1, &blocked), 1);
+                EXPECT_EQUAL(conn->wire_bytes_out, expected_bytes);
 
                 /* Test: Send one maximum sized record */
-                expected_seq_num++;
+                expected_bytes += S2N_TLS_MAXIMUM_FRAGMENT_LENGTH;
+                EXPECT_TRUE(sizeof(test_data) <= S2N_TLS_MAXIMUM_FRAGMENT_LENGTH);
                 EXPECT_EQUAL(
-                        s2n_send(conn, large_test_data, S2N_TLS_MAXIMUM_FRAGMENT_LENGTH, &blocked),
+                        s2n_send(conn, test_data, S2N_TLS_MAXIMUM_FRAGMENT_LENGTH, &blocked),
                         S2N_TLS_MAXIMUM_FRAGMENT_LENGTH);
-                EXPECT_OK(s2n_assert_seq_num_equal(seq_num, expected_seq_num));
-
-                /* Test: Send multiple records */
-                expected_seq_num += 2;
-                EXPECT_EQUAL(
-                        s2n_send(conn, large_test_data, S2N_TLS_MAXIMUM_FRAGMENT_LENGTH + 1, &blocked),
-                        S2N_TLS_MAXIMUM_FRAGMENT_LENGTH + 1);
-                EXPECT_OK(s2n_assert_seq_num_equal(seq_num, expected_seq_num));
+                EXPECT_EQUAL(conn->wire_bytes_out, expected_bytes);
 
                 /* Test: Send enough data to hit the encryption limit */
+                expected_bytes = encryption_limit_bytes - sizeof(test_data);
+                conn->wire_bytes_out = expected_bytes;
                 EXPECT_FAILURE_WITH_ERRNO(
-                        s2n_send(conn, large_test_data, sizeof(large_test_data), &blocked),
+                        s2n_send(conn, test_data, sizeof(test_data), &blocked),
                         S2N_ERR_KTLS_KEY_LIMIT);
-                EXPECT_OK(s2n_assert_seq_num_equal(seq_num, expected_seq_num));
+                EXPECT_EQUAL(conn->wire_bytes_out, expected_bytes);
             };
 
             /* Test: Exact encryption limit boundary */
             {
-                DEFER_CLEANUP(struct s2n_blob seq_num = { 0 }, s2n_blob_zero);
-                EXPECT_OK(s2n_connection_get_sequence_number(conn, conn->mode, &seq_num));
+                /* For simplicity, we don't consider partial records.
+                 * So meeting the limit is equivalent to exceeding it.
+                 */
+                uint64_t max_bytes = encryption_limit_bytes - 1;
+                conn->wire_bytes_out = max_bytes - 1;
 
-                /* Send enough records to hit but not exceed the encryption limit */
-                for (size_t i = 0; i < test_encryption_limit; i++) {
-                    EXPECT_EQUAL(s2n_send(conn, large_test_data, 1, &blocked), 1);
-                }
-                EXPECT_OK(s2n_assert_seq_num_equal(seq_num, test_encryption_limit));
+                /* Send enough data to not exceed the encryption limit */
+                EXPECT_EQUAL(s2n_send(conn, test_data, 1, &blocked), 1);
+                EXPECT_EQUAL(conn->wire_bytes_out, max_bytes);
 
-                /* One more record should exceed the encryption limit */
+                /* One more byte should exceed the encryption limit */
                 EXPECT_FAILURE_WITH_ERRNO(
-                        s2n_send(conn, large_test_data, 1, &blocked),
+                        s2n_send(conn, test_data, 1, &blocked),
                         S2N_ERR_KTLS_KEY_LIMIT);
-                EXPECT_OK(s2n_assert_seq_num_equal(seq_num, test_encryption_limit));
+                EXPECT_EQUAL(conn->wire_bytes_out, max_bytes);
             };
 
             /* Test: Limit not tracked with TLS1.2 */
             {
+                conn->wire_bytes_out = 0;
+
                 DEFER_CLEANUP(struct s2n_blob seq_num = { 0 }, s2n_blob_zero);
                 EXPECT_OK(s2n_connection_get_sequence_number(conn, conn->mode, &seq_num));
 
-                /* Sequence number not incremented with TLS1.2 */
+                /* Bytes not incremented with TLS1.2 */
                 conn->actual_protocol_version = S2N_TLS12;
                 EXPECT_EQUAL(
-                        s2n_send(conn, large_test_data, sizeof(large_test_data), &blocked),
-                        sizeof(large_test_data));
-                EXPECT_OK(s2n_assert_seq_num_equal(seq_num, 0));
+                        s2n_send(conn, test_data, sizeof(test_data), &blocked),
+                        sizeof(test_data));
+                EXPECT_EQUAL(conn->wire_bytes_out, 0);
 
-                /* Sequence number incremented with TLS1.3 */
+                /* Bytes incremented with TLS1.3 */
                 conn->actual_protocol_version = S2N_TLS13;
                 EXPECT_EQUAL(
-                        s2n_send(conn, large_test_data, sizeof(large_test_data), &blocked),
-                        sizeof(large_test_data));
-                EXPECT_OK(s2n_assert_seq_num_equal(seq_num, test_encryption_limit));
+                        s2n_send(conn, test_data, sizeof(test_data), &blocked),
+                        sizeof(test_data));
+                EXPECT_EQUAL(conn->wire_bytes_out, sizeof(test_data));
 
                 /* Passing the limit with TLS1.3 is an error */
                 conn->actual_protocol_version = S2N_TLS13;
+                conn->wire_bytes_out = encryption_limit_bytes;
                 EXPECT_FAILURE_WITH_ERRNO(
-                        s2n_send(conn, large_test_data, 1, &blocked),
+                        s2n_send(conn, test_data, 1, &blocked),
                         S2N_ERR_KTLS_KEY_LIMIT);
 
                 /* Passing the limit with TLS1.2 is NOT an error */
                 conn->actual_protocol_version = S2N_TLS12;
-                EXPECT_EQUAL(s2n_send(conn, large_test_data, 1, &blocked), 1);
+                conn->wire_bytes_out = encryption_limit_bytes;
+                EXPECT_EQUAL(s2n_send(conn, test_data, 1, &blocked), 1);
             };
         }
     };

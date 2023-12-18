@@ -269,21 +269,6 @@ S2N_RESULT s2n_ktls_recvmsg(void *io_context, uint8_t *record_type, uint8_t *buf
     return S2N_RESULT_OK;
 }
 
-/* The RFC defines the encryption limits in terms of "full-size records" sent.
- * We can estimate the number of "full-sized records" sent by assuming that
- * all records are full-sized.
- */
-static S2N_RESULT s2n_ktls_estimate_records(size_t bytes, uint64_t *estimate)
-{
-    RESULT_ENSURE_REF(estimate);
-    uint64_t records = bytes / S2N_TLS_MAXIMUM_FRAGMENT_LENGTH;
-    if (bytes % S2N_TLS_MAXIMUM_FRAGMENT_LENGTH) {
-        records++;
-    }
-    *estimate = records;
-    return S2N_RESULT_OK;
-}
-
 /* ktls does not currently support updating keys, so we should kill the connection
  * when the key encryption limit is reached. We could get the current record
  * sequence number from the kernel with getsockopt, but that requires a surprisingly
@@ -292,51 +277,46 @@ static S2N_RESULT s2n_ktls_estimate_records(size_t bytes, uint64_t *estimate)
  * Instead, we track the estimated sequence number and enforce the limit based
  * on that estimate.
  */
-static S2N_RESULT s2n_ktls_check_estimated_record_limit(
-        struct s2n_connection *conn, size_t bytes_requested)
+static S2N_RESULT s2n_ktls_check_bytes_requested(struct s2n_connection *conn, size_t bytes_requested)
 {
     RESULT_ENSURE_REF(conn);
     if (conn->actual_protocol_version < S2N_TLS13) {
         return S2N_RESULT_OK;
     }
-
-    uint64_t new_records_sent = 0;
-    RESULT_GUARD(s2n_ktls_estimate_records(bytes_requested, &new_records_sent));
-
-    uint64_t old_records_sent = 0;
-    struct s2n_blob seq_num = { 0 };
-    RESULT_GUARD(s2n_connection_get_sequence_number(conn, conn->mode, &seq_num));
-    RESULT_GUARD_POSIX(s2n_sequence_number_to_uint64(&seq_num, &old_records_sent));
-
-    RESULT_ENSURE(S2N_ADD_IS_OVERFLOW_SAFE(old_records_sent, new_records_sent, UINT64_MAX),
-            S2N_ERR_KTLS_KEY_LIMIT);
-    uint64_t total_records_sent = old_records_sent + new_records_sent;
 
     RESULT_ENSURE_REF(conn->secure);
     RESULT_ENSURE_REF(conn->secure->cipher_suite);
     RESULT_ENSURE_REF(conn->secure->cipher_suite->record_alg);
-    uint64_t encryption_limit = conn->secure->cipher_suite->record_alg->encryption_limit;
-    RESULT_ENSURE(total_records_sent <= encryption_limit, S2N_ERR_KTLS_KEY_LIMIT);
+    uint64_t records_limit = conn->secure->cipher_suite->record_alg->encryption_limit;
+    if (records_limit == UINT64_MAX) {
+        return S2N_RESULT_OK;
+    }
+
+    /* We can track bytes instead of estimated records because all current limits
+     * (AES-GCM) are lower than UINT64_MAX bytes. If we implement ciphers with
+     * higher limits, this may no longer be practical.
+     */
+    RESULT_ENSURE(UINT64_MAX / S2N_TLS_MAXIMUM_FRAGMENT_LENGTH >= records_limit,
+            S2N_ERR_UNIMPLEMENTED);
+
+    RESULT_ENSURE(S2N_ADD_IS_OVERFLOW_SAFE(conn->wire_bytes_out, bytes_requested, UINT64_MAX),
+            S2N_ERR_KTLS_KEY_LIMIT);
+    uint64_t bytes = conn->wire_bytes_out + bytes_requested;
+    uint64_t full_sized_records = bytes / S2N_TLS_MAXIMUM_FRAGMENT_LENGTH;
+
+    RESULT_ENSURE(full_sized_records < records_limit, S2N_ERR_KTLS_KEY_LIMIT);
     return S2N_RESULT_OK;
 }
 
-static S2N_RESULT s2n_ktls_set_estimated_sequence_number(
-        struct s2n_connection *conn, size_t bytes_written)
+static S2N_RESULT s2n_ktls_set_bytes_written(struct s2n_connection *conn, size_t bytes_written)
 {
     RESULT_ENSURE_REF(conn);
     if (conn->actual_protocol_version < S2N_TLS13) {
         return S2N_RESULT_OK;
     }
-
-    uint64_t new_records_sent = 0;
-    RESULT_GUARD(s2n_ktls_estimate_records(bytes_written, &new_records_sent));
-
-    struct s2n_blob seq_num = { 0 };
-    RESULT_GUARD(s2n_connection_get_sequence_number(conn, conn->mode, &seq_num));
-
-    for (size_t i = 0; i < new_records_sent; i++) {
-        RESULT_GUARD_POSIX(s2n_increment_sequence_number(&seq_num));
-    }
+    RESULT_ENSURE(S2N_ADD_IS_OVERFLOW_SAFE(conn->wire_bytes_out, bytes_written, UINT64_MAX),
+            S2N_ERR_KTLS_KEY_LIMIT);
+    conn->wire_bytes_out += bytes_written;
     return S2N_RESULT_OK;
 }
 
@@ -421,7 +401,7 @@ ssize_t s2n_ktls_sendv_with_offset(struct s2n_connection *conn, const struct iov
 
     ssize_t total_bytes = 0;
     POSIX_GUARD_RESULT(s2n_sendv_with_offset_total_size(bufs, count_in, offs_in, &total_bytes));
-    POSIX_GUARD_RESULT(s2n_ktls_check_estimated_record_limit(conn, total_bytes));
+    POSIX_GUARD_RESULT(s2n_ktls_check_bytes_requested(conn, total_bytes));
 
     DEFER_CLEANUP(struct s2n_blob new_bufs = { 0 }, s2n_free_or_wipe);
     uint8_t new_bufs_mem[S2N_MAX_STACK_IOVECS_MEM] = { 0 };
@@ -434,7 +414,7 @@ ssize_t s2n_ktls_sendv_with_offset(struct s2n_connection *conn, const struct iov
     POSIX_GUARD_RESULT(s2n_ktls_sendmsg(conn->send_io_context, TLS_APPLICATION_DATA,
             bufs, count, blocked, &bytes_written));
 
-    POSIX_GUARD_RESULT(s2n_ktls_set_estimated_sequence_number(conn, bytes_written));
+    POSIX_GUARD_RESULT(s2n_ktls_set_bytes_written(conn, bytes_written));
     return bytes_written;
 }
 
@@ -498,7 +478,7 @@ int s2n_sendfile(struct s2n_connection *conn, int in_fd, off_t offset, size_t co
     *bytes_written = 0;
     POSIX_ENSURE_REF(conn);
     POSIX_ENSURE(conn->ktls_send_enabled, S2N_ERR_KTLS_UNSUPPORTED_CONN);
-    POSIX_GUARD_RESULT(s2n_ktls_check_estimated_record_limit(conn, count));
+    POSIX_GUARD_RESULT(s2n_ktls_check_bytes_requested(conn, count));
 
     int out_fd = 0;
     POSIX_GUARD_RESULT(s2n_ktls_get_file_descriptor(conn, S2N_KTLS_MODE_SEND, &out_fd));
@@ -513,7 +493,7 @@ int s2n_sendfile(struct s2n_connection *conn, int in_fd, off_t offset, size_t co
     POSIX_BAIL(S2N_ERR_UNIMPLEMENTED);
 #endif
 
-    POSIX_GUARD_RESULT(s2n_ktls_set_estimated_sequence_number(conn, *bytes_written));
+    POSIX_GUARD_RESULT(s2n_ktls_set_bytes_written(conn, *bytes_written));
     *blocked = S2N_NOT_BLOCKED;
     return S2N_SUCCESS;
 }
