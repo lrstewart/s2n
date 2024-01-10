@@ -144,6 +144,7 @@ async fn shutdown_after_halfclose_split() -> Result<(), Box<dyn std::error::Erro
 
 #[tokio::test(start_paused = true)]
 async fn shutdown_with_blinding() -> Result<(), Box<dyn std::error::Error>> {
+    for _ in 1..100 {
     let clock = common::TokioTime::default();
     let mut server_config = common::server_config()?;
     server_config.set_monotonic_clock(clock)?;
@@ -170,21 +171,26 @@ async fn shutdown_with_blinding() -> Result<(), Box<dyn std::error::Error>> {
     assert!(result.is_err());
 
     // Shutdown MUST NOT complete faster than minimal blinding time.
+    println!("{:?} Test: first join", time::Instant::now());
     let (timeout, _) = join!(
         time::timeout(common::MIN_BLINDING_SECS, server.shutdown()),
         time::timeout(common::MIN_BLINDING_SECS, read_until_shutdown(&mut client)),
     );
+    println!("{:?} Test: first join done", time::Instant::now());
     assert!(timeout.is_err());
 
     // Shutdown MUST eventually complete after blinding.
     //
     // We check for completion, but not for success. At the moment, the
     // call to s2n_shutdown will fail due to issues in the underlying C library.
+    println!("{:?} Test: second join", time::Instant::now());
     let (timeout, _) = join!(
         time::timeout(common::MAX_BLINDING_SECS, server.shutdown()),
         time::timeout(common::MAX_BLINDING_SECS, read_until_shutdown(&mut client)),
     );
+    println!("{:?} Test: second join done", time::Instant::now());
     assert!(timeout.is_ok());
+    }
 
     Ok(())
 }

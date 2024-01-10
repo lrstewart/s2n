@@ -22,7 +22,7 @@ use std::{
 };
 use tokio::{
     io::{AsyncRead, AsyncWrite, ReadBuf},
-    time::{sleep, Duration, Sleep},
+    time::{sleep, Duration, Sleep, Instant},
 };
 
 macro_rules! ready {
@@ -55,7 +55,7 @@ where
         S: AsyncRead + AsyncWrite + Unpin,
     {
         let conn = self.builder.build_connection(Mode::Server)?;
-        TlsStream::open(conn, stream).await
+        TlsStream::open(conn, stream, Mode::Server).await
     }
 }
 
@@ -85,7 +85,7 @@ where
     {
         let mut conn = self.builder.build_connection(Mode::Client)?;
         conn.as_mut().set_server_name(domain)?;
-        TlsStream::open(conn, stream).await
+        TlsStream::open(conn, stream, Mode::Client).await
     }
 }
 
@@ -159,6 +159,7 @@ where
     conn: C,
     stream: S,
     blinding: Option<Pin<Box<BlindingState>>>,
+    mode: Mode,
 }
 
 impl<S, C> TlsStream<S, C>
@@ -176,12 +177,13 @@ where
         &mut self.stream
     }
 
-    async fn open(mut conn: C, stream: S) -> Result<Self, Error> {
+    async fn open(mut conn: C, stream: S, mode: Mode) -> Result<Self, Error> {
         conn.as_mut().set_blinding(Blinding::SelfService)?;
         let mut tls = TlsStream {
             conn,
             stream,
             blinding: None,
+            mode,
         };
         TlsHandshake {
             tls: &mut tls,
@@ -402,11 +404,17 @@ where
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let mode = self.mode;
+        
+        println!("{:?}{:?} poll_shutdown start", Instant::now(), mode);
         ready!(self.as_mut().poll_blinding(ctx))?;
+        println!("{:?}{:?} blinding complete", Instant::now(), mode);
 
-        let status = ready!(self.as_mut().with_io(ctx, |mut context| {
+        let status = self.as_mut().with_io(ctx, |mut context| {
             context.conn.as_mut().poll_shutdown().map(|r| r.map(|_| ()))
-        }));
+        });
+        println!("{:?}{:?} s2n_shutdown complete: {:?}", Instant::now(), mode, status);
+        let status = ready!(status);
 
         if let Err(e) = status {
             // In case of an error shutting down, make sure you wait for
@@ -416,7 +424,10 @@ where
             unreachable!("should have returned the error we just put in!");
         }
 
-        Pin::new(&mut self.as_mut().stream).poll_shutdown(ctx)
+        println!("{:?}{:?} tcp shutdown start", Instant::now(), mode);
+        let r = Pin::new(&mut self.as_mut().stream).poll_shutdown(ctx);
+        println!("{:?}{:?} tcp shutdown complete: {:?}", Instant::now(), mode, r);
+        r
     }
 }
 

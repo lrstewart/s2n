@@ -58,25 +58,32 @@ int s2n_shutdown_send(struct s2n_connection *conn, s2n_blocked_status *blocked)
     POSIX_ENSURE_REF(blocked);
     *blocked = S2N_NOT_BLOCKED;
 
+    const char *mode = (conn->mode == S2N_SERVER) ? "server" : "client";
+    printf("C%s s2n_shutdown_send\n", mode);
+
     /* Treat this call as a no-op if already wiped.
      * This should probably be an error, but wasn't in the past so is left as-is
      * for backwards compatibility.
      */
     if (conn->send == NULL && conn->recv == NULL) {
+        printf("C%s don't send close_notify: already wiped\n", mode);
         return S2N_SUCCESS;
     }
 
     /* Flush any outstanding data */
     s2n_atomic_flag_set(&conn->write_closed);
+    printf("C%s flush\n", mode);
     POSIX_GUARD(s2n_flush(conn, blocked));
 
     /* For a connection closed due to receiving an alert, we don't send anything. */
     if (s2n_atomic_flag_test(&conn->error_alert_received)) {
+        printf("C%s don't send close_notify: alert received\n", mode);
         return S2N_SUCCESS;
     }
 
     /* If we've already sent an alert, don't send another. */
     if (conn->alert_sent) {
+        printf("C%s don't send close_notify: alert sent\n", mode);
         return S2N_SUCCESS;
     }
 
@@ -93,6 +100,7 @@ int s2n_shutdown_send(struct s2n_connection *conn, s2n_blocked_status *blocked)
      *# Each party MUST send a "close_notify" alert before closing its write
      *# side of the connection, unless it has already sent some error alert.
      */
+    printf("C%s write close_notify\n", mode);
     POSIX_GUARD_RESULT(s2n_alerts_write_error_or_close_notify(conn));
     POSIX_GUARD(s2n_flush(conn, blocked));
     return S2N_SUCCESS;
@@ -104,6 +112,9 @@ int s2n_shutdown(struct s2n_connection *conn, s2n_blocked_status *blocked)
     POSIX_ENSURE_REF(blocked);
     *blocked = S2N_NOT_BLOCKED;
 
+    const char *mode = (conn->mode == S2N_SERVER) ? "server" : "client";
+    printf("C%s s2n_shutdown\n", mode);
+
     /* If necessary, send an alert to indicate shutdown. */
     POSIX_GUARD(s2n_shutdown_send(conn, blocked));
 
@@ -111,6 +122,7 @@ int s2n_shutdown(struct s2n_connection *conn, s2n_blocked_status *blocked)
      * just ensure that the connection is marked closed.
      */
     if (!s2n_shutdown_expect_close_notify(conn)) {
+        printf("C%s no close_notify expected: done\n", mode);
         POSIX_GUARD_RESULT(s2n_connection_set_closed(conn));
         *blocked = S2N_NOT_BLOCKED;
         return S2N_SUCCESS;
@@ -128,9 +140,17 @@ int s2n_shutdown(struct s2n_connection *conn, s2n_blocked_status *blocked)
         POSIX_GUARD(s2n_stuffer_wipe(&conn->in));
         conn->in_status = ENCRYPTED;
 
-        POSIX_GUARD(s2n_read_full_record(conn, &record_type, &isSSLv2));
+        printf("C%s attempting to read close_notify\n", mode);
+        int r = s2n_read_full_record(conn, &record_type, &isSSLv2);
+        if (r != S2N_SUCCESS) {
+            printf("C%s read failed: %s, %s\n", mode,
+                    s2n_strerror_name(s2n_errno),
+                    s2n_strerror_debug(s2n_errno, NULL));
+        }
+        POSIX_GUARD(r);
         POSIX_ENSURE(!isSSLv2, S2N_ERR_BAD_MESSAGE);
         if (record_type == TLS_ALERT) {
+            printf("C%s alert found\n", mode);
             POSIX_GUARD(s2n_process_alert_fragment(conn));
         }
     }
