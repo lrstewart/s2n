@@ -148,6 +148,7 @@ async fn shutdown_after_halfclose_split() -> Result<(), Box<dyn std::error::Erro
 
 #[tokio::test(start_paused = true)]
 async fn shutdown_with_blinding() -> Result<(), Box<dyn std::error::Error>> {
+    loop {
     let clock = common::TokioTime::default();
     let mut server_config = common::server_config()?;
     server_config.set_monotonic_clock(clock)?;
@@ -200,8 +201,7 @@ async fn shutdown_with_blinding() -> Result<(), Box<dyn std::error::Error>> {
     // Shutdown MUST have sent the close_notify message needed by the peer
     // to also shutdown successfully.
     client.shutdown().await?;
-
-    Ok(())
+    }
 }
 
 #[tokio::test(start_paused = true)]
