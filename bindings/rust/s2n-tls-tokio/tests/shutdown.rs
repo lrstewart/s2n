@@ -144,6 +144,7 @@ async fn shutdown_after_halfclose_split() -> Result<(), Box<dyn std::error::Erro
 
 #[tokio::test(start_paused = true)]
 async fn shutdown_with_blinding() -> Result<(), Box<dyn std::error::Error>> {
+    for _ in 1..100 {
     let clock = common::TokioTime::default();
     let mut server_config = common::server_config()?;
     server_config.set_monotonic_clock(clock)?;
@@ -185,6 +186,7 @@ async fn shutdown_with_blinding() -> Result<(), Box<dyn std::error::Error>> {
         time::timeout(common::MAX_BLINDING_SECS, read_until_shutdown(&mut client)),
     );
     assert!(timeout.is_ok());
+    }
 
     Ok(())
 }
