@@ -1411,6 +1411,19 @@ S2N_API extern struct s2n_client_hello *s2n_connection_get_client_hello(struct s
 S2N_API extern struct s2n_client_hello *s2n_client_hello_parse_message(const uint8_t *bytes, uint32_t size);
 
 /**
+ * Adding these for testing.
+ *
+ * They're pretty hacky right now-- I'm doing basically no optimizations and
+ * not bothering to clean up after myself, since you don't plan to continue IO.
+ * Consider this a memory upper bound :)
+ *
+ * After calling one of these methods, you will currently not be able to call
+ * any other IO method (like s2n_negotiate). We can fix that later.
+ */
+S2N_API int s2n_unstable_client_hello_recv(struct s2n_connection *conn);
+S2N_API int s2n_unstable_client_hello_recv_bytes(struct s2n_connection *conn, uint8_t *bytes, size_t size);
+
+/**
  * Frees an s2n_client_hello structure.
  *
  * This method should be called to free s2n_client_hellos returned by

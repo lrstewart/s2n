@@ -1682,6 +1682,97 @@ int main(int argc, char **argv)
         };
     };
 
+    /* Test: s2n_unstable_client_hello_recv */
+    {
+        DEFER_CLEANUP(struct s2n_connection *client = s2n_connection_new(S2N_CLIENT),
+                s2n_connection_ptr_free);
+        EXPECT_NOT_NULL(client);
+
+        DEFER_CLEANUP(struct s2n_connection *server = s2n_connection_new(S2N_SERVER),
+                s2n_connection_ptr_free);
+        EXPECT_NOT_NULL(server);
+        EXPECT_SUCCESS(s2n_connection_set_blinding(server, S2N_SELF_SERVICE_BLINDING));
+
+        DEFER_CLEANUP(struct s2n_test_io_pair io_pair = { 0 }, s2n_io_pair_close);
+        EXPECT_SUCCESS(s2n_io_pair_init_non_blocking(&io_pair));
+        EXPECT_SUCCESS(s2n_connections_set_io_pair(client, server, &io_pair));
+
+        /* Server blocks if CH not available */
+        EXPECT_FAILURE_WITH_ERRNO(s2n_unstable_client_hello_recv(server),
+                S2N_ERR_IO_BLOCKED);
+
+        /* Client sends CH (then blocks on SH) */
+        s2n_blocked_status blocked = S2N_NOT_BLOCKED;
+        EXPECT_FAILURE_WITH_ERRNO(s2n_negotiate(client, &blocked), S2N_ERR_IO_BLOCKED);
+
+        /* Server receives CH this time */
+        EXPECT_SUCCESS(s2n_unstable_client_hello_recv(server));
+
+        struct s2n_client_hello *ch = s2n_connection_get_client_hello(server);
+        EXPECT_NOT_NULL(ch);
+        EXPECT_TRUE(s2n_client_hello_get_raw_message_length(ch) > 0);
+        EXPECT_TRUE(s2n_client_hello_get_cipher_suites_length(ch) > 0);
+        EXPECT_TRUE(s2n_client_hello_get_extensions_length(ch) > 0);
+    }
+
+    /* Test: s2n_unstable_client_hello_recv_bytes */
+    {
+        DEFER_CLEANUP(struct s2n_connection *client = s2n_connection_new(S2N_CLIENT),
+                s2n_connection_ptr_free);
+        EXPECT_NOT_NULL(client);
+
+        DEFER_CLEANUP(struct s2n_connection *server = s2n_connection_new(S2N_SERVER),
+                s2n_connection_ptr_free);
+        EXPECT_NOT_NULL(server);
+        EXPECT_SUCCESS(s2n_connection_set_blinding(server, S2N_SELF_SERVICE_BLINDING));
+
+        DEFER_CLEANUP(struct s2n_test_io_stuffer_pair io_pair = { 0 }, s2n_io_stuffer_pair_free);
+        EXPECT_OK(s2n_io_stuffer_pair_init(&io_pair));
+        EXPECT_OK(s2n_connections_set_io_stuffer_pair(client, server, &io_pair));
+
+        /* Client sends CH (then blocks on SH) */
+        s2n_blocked_status blocked = S2N_NOT_BLOCKED;
+        EXPECT_FAILURE_WITH_ERRNO(s2n_negotiate(client, &blocked), S2N_ERR_IO_BLOCKED);
+
+        /* Pass zero bytes to server */
+        EXPECT_FAILURE_WITH_ERRNO(s2n_unstable_client_hello_recv_bytes(server, NULL, 0),
+                S2N_ERR_IO_BLOCKED);
+        EXPECT_FAILURE_WITH_ERRNO(s2n_unstable_client_hello_recv_bytes(server, NULL, 0),
+                S2N_ERR_IO_BLOCKED);
+
+        /* Pass 1 byte to server */
+        uint8_t *input = s2n_stuffer_raw_read(&io_pair.server_in, 1);
+        EXPECT_NOT_NULL(input);
+        EXPECT_FAILURE_WITH_ERRNO(s2n_unstable_client_hello_recv_bytes(server, input, 1),
+                S2N_ERR_IO_BLOCKED);
+
+        /* Pass 0 again */
+        EXPECT_FAILURE_WITH_ERRNO(s2n_unstable_client_hello_recv_bytes(server, NULL, 0),
+                S2N_ERR_IO_BLOCKED);
+
+        /* Pass more to the server */
+        input = s2n_stuffer_raw_read(&io_pair.server_in, 10);
+        EXPECT_NOT_NULL(input);
+        EXPECT_FAILURE_WITH_ERRNO(s2n_unstable_client_hello_recv_bytes(server, input, 10),
+                S2N_ERR_IO_BLOCKED);
+
+        /* Pass 0 again */
+        EXPECT_FAILURE_WITH_ERRNO(s2n_unstable_client_hello_recv_bytes(server, NULL, 0),
+                S2N_ERR_IO_BLOCKED);
+
+        /* Pass rest of the CH */
+        size_t remaining = s2n_stuffer_data_available(&io_pair.server_in);
+        input = s2n_stuffer_raw_read(&io_pair.server_in, remaining);
+        EXPECT_NOT_NULL(input);
+        EXPECT_SUCCESS(s2n_unstable_client_hello_recv_bytes(server, input, remaining));
+
+        struct s2n_client_hello *ch = s2n_connection_get_client_hello(server);
+        EXPECT_NOT_NULL(ch);
+        EXPECT_TRUE(s2n_client_hello_get_raw_message_length(ch) > 0);
+        EXPECT_TRUE(s2n_client_hello_get_cipher_suites_length(ch) > 0);
+        EXPECT_TRUE(s2n_client_hello_get_extensions_length(ch) > 0);
+    }
+
     EXPECT_SUCCESS(s2n_cert_chain_and_key_free(chain_and_key));
     EXPECT_SUCCESS(s2n_cert_chain_and_key_free(ecdsa_chain_and_key));
     END_TEST();

@@ -1001,3 +1001,52 @@ int s2n_client_hello_get_supported_groups(struct s2n_client_hello *ch, uint16_t 
 
     return S2N_SUCCESS;
 }
+
+static int s2n_buffer_recv_cb(void *io_context, uint8_t *buf, uint32_t len)
+{
+    errno = EIO;
+    struct s2n_stuffer *in = (struct s2n_stuffer *) io_context;
+    POSIX_ENSURE_REF(in);
+
+    size_t bytes_available = s2n_stuffer_data_available(in);
+    if (bytes_available == 0) {
+        errno = EAGAIN;
+        return -1;
+    }
+
+    size_t bytes_to_read = MIN(len, bytes_available);
+    POSIX_GUARD(s2n_stuffer_read_bytes(in, buf, bytes_to_read));
+    return bytes_to_read;
+}
+
+int s2n_unstable_client_hello_recv(struct s2n_connection *conn)
+{
+    POSIX_ENSURE_REF(conn);
+    conn->handshake.end_of_messages = SERVER_HELLO;
+
+    s2n_blocked_status blocked = S2N_NOT_BLOCKED;
+    int result = s2n_negotiate(conn, &blocked);
+    if (!conn->client_hello.parsed) {
+        POSIX_GUARD(result);
+    }
+
+    POSIX_GUARD_RESULT(s2n_connection_set_closed(conn));
+    POSIX_GUARD(s2n_connection_release_buffers(conn));
+    return S2N_SUCCESS;
+}
+
+int s2n_unstable_client_hello_recv_bytes(struct s2n_connection *conn, uint8_t *bytes, size_t size)
+{
+    POSIX_ENSURE_REF(conn);
+
+    struct s2n_blob bytes_blob = { 0 };
+    struct s2n_stuffer bytes_stuffer = { 0 };
+    POSIX_GUARD(s2n_blob_init(&bytes_blob, bytes, size));
+    POSIX_GUARD(s2n_stuffer_init_written(&bytes_stuffer, &bytes_blob));
+    conn->recv_io_context = &bytes_stuffer;
+    conn->recv = s2n_buffer_recv_cb;
+
+    POSIX_GUARD(s2n_unstable_client_hello_recv(conn));
+    conn->recv_io_context = NULL;
+    return S2N_SUCCESS;
+}

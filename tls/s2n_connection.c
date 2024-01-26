@@ -401,6 +401,7 @@ int s2n_connection_release_buffers(struct s2n_connection *conn)
     POSIX_GUARD(s2n_stuffer_resize(&conn->out, 0));
 
     POSIX_ENSURE(s2n_stuffer_is_consumed(&conn->in), S2N_ERR_STUFFER_HAS_UNPROCESSED_DATA);
+    POSIX_GUARD(s2n_stuffer_wipe(&conn->in));
     POSIX_GUARD(s2n_stuffer_resize(&conn->in, 0));
 
     POSIX_ENSURE(s2n_stuffer_is_consumed(&conn->post_handshake.in), S2N_ERR_STUFFER_HAS_UNPROCESSED_DATA);
