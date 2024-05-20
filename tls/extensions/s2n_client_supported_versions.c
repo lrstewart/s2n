@@ -74,11 +74,12 @@ static int s2n_client_supported_versions_send(struct s2n_connection *conn, struc
     return S2N_SUCCESS;
 }
 
-int s2n_extensions_client_supported_versions_process(struct s2n_stuffer *extension,
-        uint8_t server_protocol_version,
+int s2n_extensions_client_supported_versions_process(struct s2n_connection *conn, struct s2n_stuffer *extension,
         uint8_t *client_protocol_version_out, uint8_t *actual_protocol_version_out)
 {
-    const uint8_t highest_supported_version = server_protocol_version;
+    uint8_t highest_supported_version = conn->server_protocol_version;
+    uint8_t minimum_supported_version = s2n_unknown_protocol_version;
+    POSIX_GUARD_RESULT(s2n_connection_get_minimum_supported_version(conn, &minimum_supported_version));
 
     uint8_t size_of_version_list = 0;
     POSIX_GUARD(s2n_stuffer_read_uint8(extension, &size_of_version_list));
@@ -107,6 +108,10 @@ int s2n_extensions_client_supported_versions_process(struct s2n_stuffer *extensi
             continue;
         }
 
+        if (client_version < minimum_supported_version) {
+            continue;
+        }
+
         /* We ignore the client's preferred order and instead choose
          * the highest version that both client and server support. */
         actual_protocol_version = MAX(client_version, actual_protocol_version);
@@ -123,17 +128,11 @@ static S2N_RESULT s2n_client_supported_versions_recv_impl(struct s2n_connection 
     RESULT_ENSURE_REF(conn);
     RESULT_ENSURE_REF(extension);
 
-    RESULT_GUARD_POSIX(s2n_extensions_client_supported_versions_process(extension,
-            conn->server_protocol_version,
-            &conn->client_protocol_version,
+    RESULT_GUARD_POSIX(s2n_extensions_client_supported_versions_process(conn, extension, &conn->client_protocol_version,
             &conn->actual_protocol_version));
 
     RESULT_ENSURE(conn->client_protocol_version != s2n_unknown_protocol_version, S2N_ERR_UNKNOWN_PROTOCOL_VERSION);
     RESULT_ENSURE(conn->actual_protocol_version != s2n_unknown_protocol_version, S2N_ERR_PROTOCOL_VERSION_UNSUPPORTED);
-
-    uint8_t minimum_supported_version = s2n_unknown_protocol_version;
-    RESULT_GUARD(s2n_connection_get_minimum_supported_version(conn, &minimum_supported_version));
-    RESULT_ENSURE(conn->actual_protocol_version >= minimum_supported_version, S2N_ERR_PROTOCOL_VERSION_UNSUPPORTED);
 
     return S2N_RESULT_OK;
 }

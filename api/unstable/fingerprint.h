@@ -33,8 +33,6 @@ typedef enum {
      * See https://engineering.salesforce.com/tls-fingerprinting-with-ja3-and-ja3s-247362855967.
      */
     S2N_FINGERPRINT_JA3,
-    S2N_FINGERPRINT_JA3_HEX,
-    S2N_FINGERPRINT_JA4,
 } s2n_fingerprint_type;
 
 /**
@@ -76,6 +74,3 @@ S2N_API int s2n_client_hello_get_fingerprint_hash(struct s2n_client_hello *ch,
 S2N_API int s2n_client_hello_get_fingerprint_string(struct s2n_client_hello *ch,
         s2n_fingerprint_type type, uint32_t max_size,
         uint8_t *output, uint32_t *output_size);
-
-S2N_API int s2n_client_hello_sort_for_fingerprint(struct s2n_client_hello *ch,
-        s2n_fingerprint_type type);
