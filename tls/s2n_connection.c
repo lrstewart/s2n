@@ -993,13 +993,13 @@ static S2N_RESULT s2n_connection_get_client_supported_version(struct s2n_connect
 
     uint8_t client_protocol_version = s2n_unknown_protocol_version;
     uint8_t actual_protocol_version = s2n_unknown_protocol_version;
-    RESULT_GUARD_POSIX(s2n_extensions_client_supported_versions_process(conn, &supported_versions_stuffer,
-            &client_protocol_version, &actual_protocol_version));
-
-    RESULT_ENSURE_NE(client_protocol_version, s2n_unknown_protocol_version);
+    uint8_t server_protocol_version = conn->server_protocol_version;
+    RESULT_GUARD_POSIX(s2n_extensions_client_supported_versions_process(&supported_versions_stuffer,
+            server_protocol_version, &client_protocol_version, &actual_protocol_version));
+    RESULT_ENSURE(client_protocol_version != s2n_unknown_protocol_version,
+            S2N_ERR_UNKNOWN_PROTOCOL_VERSION);
 
     *client_supported_version = client_protocol_version;
-
     return S2N_RESULT_OK;
 }
 
