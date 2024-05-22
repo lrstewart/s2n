@@ -32,66 +32,62 @@
 
 #define S2N_JA3_HEX_HASH_SIZE (MD5_DIGEST_LENGTH * 2)
 
-static S2N_RESULT s2n_fingerprint_write_entry(struct s2n_stuffer *stuffer,
-        bool *is_list, uint16_t value, struct s2n_hash_state *hash)
+static S2N_RESULT s2n_fingerprint_ja3_iana(struct s2n_fingerprint_hash *hash,
+        bool *is_list, uint16_t iana)
 {
-    /* If we have already written at least one value for this field,
-     * then we are writing a list and need to prepend a list divider before
-     * writing the next value.
-     */
-    RESULT_ENSURE_REF(is_list);
-    if (*is_list) {
-        RESULT_GUARD(s2n_fingerprint_write_char(stuffer, S2N_JA3_LIST_DIV, hash));
+    if (s2n_is_grease_value(iana)) {
+        return S2N_RESULT_OK;
     }
-    *is_list = true;
 
-    /* snprintf always appends a '\0' to the output,
-     * but that extra '\0' is not included in the return value */
-    uint8_t entry[S2N_UINT16_STR_MAX_SIZE + 1] = { 0 };
-    int written = snprintf((char *) entry, sizeof(entry), "%u", value);
+    if (*is_list) {
+        RESULT_GUARD(s2n_fingerprint_hash_add_char(hash, S2N_JA3_LIST_DIV));
+    } else {
+        *is_list = true;
+    }
+
+    char str[S2N_UINT16_STR_MAX_SIZE + 1] = { 0 };
+    int written = snprintf(str, sizeof(str), "%u", iana);
     RESULT_ENSURE_GT(written, 0);
     RESULT_ENSURE_LTE(written, S2N_UINT16_STR_MAX_SIZE);
 
-    RESULT_GUARD(s2n_fingerprint_reserve_space(stuffer, hash, written));
-    RESULT_GUARD_POSIX(s2n_stuffer_write_bytes(stuffer, entry, written));
-
+    RESULT_GUARD(s2n_fingerprint_hash_add_str(hash, str));
     return S2N_RESULT_OK;
 }
 
-static S2N_RESULT s2n_fingerprint_write_version(struct s2n_client_hello *ch,
-        struct s2n_stuffer *output, struct s2n_hash_state *hash)
+static S2N_RESULT s2n_fingerprint_ja3_version(struct s2n_fingerprint_hash *hash,
+        struct s2n_client_hello *ch)
 {
-    RESULT_ENSURE_REF(ch);
-    bool is_list = false;
-    uint16_t version = 0;
     struct s2n_stuffer message = { 0 };
+    RESULT_ENSURE_REF(ch);
     RESULT_GUARD_POSIX(s2n_stuffer_init_written(&message, &ch->raw_message));
+
+    uint16_t version = 0;
     RESULT_GUARD_POSIX(s2n_stuffer_read_uint16(&message, &version));
-    RESULT_GUARD(s2n_fingerprint_write_entry(output, &is_list, version, hash));
+
+    bool is_list = false;
+    RESULT_GUARD(s2n_fingerprint_ja3_iana(hash, &is_list, version));
     return S2N_RESULT_OK;
 }
 
-static S2N_RESULT s2n_fingerprint_write_ciphers(struct s2n_client_hello *ch,
-        struct s2n_stuffer *output, struct s2n_hash_state *hash)
+static S2N_RESULT s2n_fingerprint_ja3_cipher_suites(struct s2n_fingerprint_hash *hash,
+        struct s2n_client_hello *ch)
 {
     RESULT_ENSURE_REF(ch);
 
-    bool cipher_found = false;
     struct s2n_stuffer ciphers = { 0 };
     RESULT_GUARD_POSIX(s2n_stuffer_init_written(&ciphers, &ch->cipher_suites));
+
+    bool found = false;
     while (s2n_stuffer_data_available(&ciphers)) {
-        uint16_t cipher = 0;
-        RESULT_GUARD_POSIX(s2n_stuffer_read_uint16(&ciphers, &cipher));
-        if (s2n_is_grease_value(cipher)) {
-            continue;
-        }
-        RESULT_GUARD(s2n_fingerprint_write_entry(output, &cipher_found, cipher, hash));
+        uint16_t iana = 0;
+        RESULT_GUARD_POSIX(s2n_stuffer_read_uint16(&ciphers, &iana));
+        RESULT_GUARD(s2n_fingerprint_ja3_iana(hash, &found, iana));
     }
     return S2N_RESULT_OK;
 }
 
-static S2N_RESULT s2n_fingerprint_write_extensions(struct s2n_client_hello *ch,
-        struct s2n_stuffer *output, struct s2n_hash_state *hash)
+static S2N_RESULT s2n_fingerprint_ja3_extensions(struct s2n_fingerprint_hash *hash,
+        struct s2n_client_hello *ch)
 {
     RESULT_ENSURE_REF(ch);
 
@@ -102,156 +98,107 @@ static S2N_RESULT s2n_fingerprint_write_extensions(struct s2n_client_hello *ch,
     struct s2n_stuffer extensions = { 0 };
     RESULT_GUARD_POSIX(s2n_stuffer_init_written(&extensions, &ch->extensions.raw));
 
-    bool extension_found = false;
+    bool found = false;
     while (s2n_stuffer_data_available(&extensions)) {
-        uint16_t extension = 0;
-        RESULT_GUARD(s2n_fingerprint_parse_extension(&extensions, &extension));
-        if (s2n_is_grease_value(extension)) {
-            continue;
-        }
-        RESULT_GUARD(s2n_fingerprint_write_entry(output, &extension_found, extension, hash));
+        uint16_t iana = 0;
+        RESULT_GUARD(s2n_fingerprint_parse_extension(&extensions, &iana));
+        RESULT_GUARD(s2n_fingerprint_ja3_iana(hash, &found, iana));
     }
     return S2N_RESULT_OK;
 }
 
-static S2N_RESULT s2n_fingerprint_write_elliptic_curves(struct s2n_client_hello *ch,
-        struct s2n_stuffer *output, struct s2n_hash_state *hash)
+static S2N_RESULT s2n_fingerprint_ja3_elliptic_curves(struct s2n_fingerprint_hash *hash,
+        struct s2n_client_hello *ch)
 {
     RESULT_ENSURE_REF(ch);
 
-    s2n_parsed_extension *elliptic_curves_extension = NULL;
+    s2n_parsed_extension *extension = NULL;
     int result = s2n_client_hello_get_parsed_extension(S2N_EXTENSION_SUPPORTED_GROUPS,
-            &ch->extensions, &elliptic_curves_extension);
+            &ch->extensions, &extension);
     if (result != S2N_SUCCESS) {
         return S2N_RESULT_OK;
     }
 
     struct s2n_stuffer elliptic_curves = { 0 };
-    RESULT_GUARD_POSIX(s2n_stuffer_init_written(&elliptic_curves,
-            &elliptic_curves_extension->extension));
+    RESULT_GUARD_POSIX(s2n_stuffer_init_written(&elliptic_curves, &extension->extension));
+    RESULT_GUARD_POSIX(s2n_stuffer_skip_read(&elliptic_curves, sizeof(uint16_t)));
 
-    uint16_t count = 0;
-    RESULT_GUARD_POSIX(s2n_stuffer_read_uint16(&elliptic_curves, &count));
-
-    bool curve_found = false;
+    bool found = false;
     while (s2n_stuffer_data_available(&elliptic_curves)) {
-        uint16_t curve = 0;
-        RESULT_GUARD_POSIX(s2n_stuffer_read_uint16(&elliptic_curves, &curve));
-        if (s2n_is_grease_value(curve)) {
-            continue;
-        }
-        RESULT_GUARD(s2n_fingerprint_write_entry(output, &curve_found, curve, hash));
+        uint16_t iana = 0;
+        RESULT_GUARD_POSIX(s2n_stuffer_read_uint16(&elliptic_curves, &iana));
+        RESULT_GUARD(s2n_fingerprint_ja3_iana(hash, &found, iana));
     }
     return S2N_RESULT_OK;
 }
 
-static S2N_RESULT s2n_fingerprint_write_point_formats(struct s2n_client_hello *ch,
-        struct s2n_stuffer *output, struct s2n_hash_state *hash)
+static S2N_RESULT s2n_fingerprint_ja3_point_formats(struct s2n_fingerprint_hash *hash,
+        struct s2n_client_hello *ch)
 {
     RESULT_ENSURE_REF(ch);
 
-    s2n_parsed_extension *point_formats_extension = NULL;
+    s2n_parsed_extension *extension = NULL;
     int result = s2n_client_hello_get_parsed_extension(S2N_EXTENSION_EC_POINT_FORMATS,
-            &ch->extensions, &point_formats_extension);
+            &ch->extensions, &extension);
     if (result != S2N_SUCCESS) {
         return S2N_RESULT_OK;
     }
 
     struct s2n_stuffer point_formats = { 0 };
-    RESULT_GUARD_POSIX(s2n_stuffer_init_written(&point_formats,
-            &point_formats_extension->extension));
+    RESULT_GUARD_POSIX(s2n_stuffer_init_written(&point_formats, &extension->extension));
+    RESULT_GUARD_POSIX(s2n_stuffer_skip_read(&point_formats, sizeof(uint16_t)));
 
-    uint8_t count = 0;
-    RESULT_GUARD_POSIX(s2n_stuffer_read_uint8(&point_formats, &count));
-
-    bool format_found = false;
+    bool found = false;
     while (s2n_stuffer_data_available(&point_formats)) {
-        uint8_t format = 0;
-        RESULT_GUARD_POSIX(s2n_stuffer_read_uint8(&point_formats, &format));
-        RESULT_GUARD(s2n_fingerprint_write_entry(output, &format_found, format, hash));
+        uint8_t iana = 0;
+        RESULT_GUARD_POSIX(s2n_stuffer_read_uint8(&point_formats, &iana));
+        RESULT_GUARD(s2n_fingerprint_ja3_iana(hash, &found, iana));
     }
     return S2N_RESULT_OK;
 }
 
-/* JA3 involves concatenating a set of fields from the ClientHello:
- *      SSLVersion,Cipher,SSLExtension,EllipticCurve,EllipticCurvePointFormat
- * For example:
- *      "769,47-53-5-10-49161-49162-49171-49172-50-56-19-4,0-10-11,23-24-25,0"
- * See https://github.com/salesforce/ja3
- */
-static S2N_RESULT s2n_fingerprint_ja3_write(struct s2n_client_hello *ch,
-        struct s2n_stuffer *output, struct s2n_hash_state *hash)
+static S2N_RESULT s2n_fingerprint_ja3_write(struct s2n_fingerprint_hash *hash,
+        struct s2n_client_hello *ch)
 {
-    RESULT_GUARD(s2n_fingerprint_write_version(ch, output, hash));
-    RESULT_GUARD(s2n_fingerprint_write_char(output, S2N_JA3_FIELD_DIV, hash));
-    RESULT_GUARD(s2n_fingerprint_write_ciphers(ch, output, hash));
-    RESULT_GUARD(s2n_fingerprint_write_char(output, S2N_JA3_FIELD_DIV, hash));
-    RESULT_GUARD(s2n_fingerprint_write_extensions(ch, output, hash));
-    RESULT_GUARD(s2n_fingerprint_write_char(output, S2N_JA3_FIELD_DIV, hash));
-    RESULT_GUARD(s2n_fingerprint_write_elliptic_curves(ch, output, hash));
-    RESULT_GUARD(s2n_fingerprint_write_char(output, S2N_JA3_FIELD_DIV, hash));
-    RESULT_GUARD(s2n_fingerprint_write_point_formats(ch, output, hash));
+    RESULT_GUARD(s2n_fingerprint_ja3_version(hash, ch));
+    RESULT_GUARD(s2n_fingerprint_hash_add_char(hash, S2N_JA3_FIELD_DIV));
+    RESULT_GUARD(s2n_fingerprint_ja3_cipher_suites(hash, ch));
+    RESULT_GUARD(s2n_fingerprint_hash_add_char(hash, S2N_JA3_FIELD_DIV));
+    RESULT_GUARD(s2n_fingerprint_ja3_extensions(hash, ch));
+    RESULT_GUARD(s2n_fingerprint_hash_add_char(hash, S2N_JA3_FIELD_DIV));
+    RESULT_GUARD(s2n_fingerprint_ja3_elliptic_curves(hash, ch));
+    RESULT_GUARD(s2n_fingerprint_hash_add_char(hash, S2N_JA3_FIELD_DIV));
+    RESULT_GUARD(s2n_fingerprint_ja3_point_formats(hash, ch));
     return S2N_RESULT_OK;
 }
 
-S2N_RESULT s2n_fingerprint_ja3(struct s2n_client_hello *ch,
-        struct s2n_stuffer *output, struct s2n_hash_state *hash, size_t *str_size)
+static S2N_RESULT s2n_fingerprint_ja3(struct s2n_fingerprint *fingerprint,
+        struct s2n_stuffer *output)
 {
-    if (!hash) {
-        return s2n_fingerprint_ja3_write(ch, output, hash);
-    }
+    RESULT_ENSURE_REF(fingerprint);
 
-    RESULT_ENSURE_REF(str_size);
-    RESULT_ENSURE_REF(output);
-    RESULT_ENSURE(output->blob.size >= S2N_JA3_HEX_HASH_SIZE, S2N_ERR_INVALID_ARGUMENT);
-
-    /* JA3 uses an MD5 hash.
-     * The hash doesn't have to be cryptographically secure,
-     * so the weakness of MD5 shouldn't be a problem.
-     */
-    if (s2n_is_in_fips_mode()) {
-        /* This hash is unrelated to TLS and does not affect FIPS */
-        RESULT_GUARD_POSIX(s2n_hash_allow_md5_for_fips(hash));
-    }
-    RESULT_GUARD_POSIX(s2n_hash_init(hash, S2N_HASH_MD5));
-
-    /* The maximum size of the JA3 string is variable and could theoretically
-     * be extremely large. However, we don't need enough memory to hold the full
-     * string when calculating a hash. We can calculate and add the JA3 string
-     * to the hash in chunks, similarly to how the TLS transcript hash is
-     * calculated by adding handshake messages to the hash as they become
-     * available. After a chunk is added to the hash, the string buffer can be
-     * wiped and reused for the next chunk.
-     *
-     * This ensure that our calculation requires a constant amount of memory,
-     * regardless of the size of the ClientHello message.
-     *
-     * The size of this buffer is the hash block size to minimize copies.
-     */
-    uint8_t hash_mem[64] = { 0 };
-    struct s2n_blob hash_blob = { 0 };
-    struct s2n_stuffer hash_stuffer = { 0 };
-    RESULT_GUARD_POSIX(s2n_blob_init(&hash_blob, hash_mem, sizeof(hash_mem)));
-    RESULT_GUARD_POSIX(s2n_stuffer_init(&hash_stuffer, &hash_blob));
-
-    RESULT_GUARD(s2n_fingerprint_ja3_write(ch, &hash_stuffer, hash));
-    RESULT_GUARD(s2n_fingerprint_hash_flush(hash, &hash_stuffer));
-
-    uint64_t in_hash = 0;
-    RESULT_GUARD_POSIX(s2n_hash_get_currently_in_hash_total(hash, &in_hash));
-    RESULT_ENSURE_LTE(in_hash, UINT32_MAX);
-    *str_size = in_hash;
+    struct s2n_fingerprint_hash hash = { 0 };
+    RESULT_GUARD(s2n_fingerprint_hash_init(&hash, &fingerprint->hash, S2N_HASH_MD5));
+    RESULT_GUARD(s2n_fingerprint_ja3_write(&hash, fingerprint->client_hello));
+    RESULT_GUARD(s2n_fingerprint_hash_flush(&hash));
 
     uint8_t digest[MD5_DIGEST_LENGTH] = { 0 };
-    RESULT_GUARD_POSIX(s2n_hash_digest(hash, digest, sizeof(digest)));
+    RESULT_GUARD_POSIX(s2n_hash_digest(hash.hash, digest, sizeof(digest)));
+    RESULT_GUARD_POSIX(s2n_hash_reset(hash.hash));
 
     /* We allocate enough memory for the trailing '\0', but it is not
      * included in the return value of snprintf. */
-    char hex[3] = { 0 };
+    char hex[S2N_HEX_PER_BYTE + 1] = { 0 };
     for (size_t i = 0; i < sizeof(digest); i++) {
-        RESULT_ENSURE_EQ(snprintf(hex, sizeof(hex), "%02x", digest[i]), 2);
+        int written = snprintf(hex, sizeof(hex), "%.*x", S2N_HEX_PER_BYTE, digest[i]);
+        RESULT_ENSURE_EQ(written, S2N_HEX_PER_BYTE);
         RESULT_GUARD_POSIX(s2n_stuffer_write_str(output, hex));
     }
 
     return S2N_RESULT_OK;
 }
+
+struct s2n_fingerprint_method ja3_fingerprint = {
+    .hash_size = MD5_DIGEST_LENGTH * S2N_HEX_PER_BYTE,
+    .hash = s2n_fingerprint_ja3,
+};

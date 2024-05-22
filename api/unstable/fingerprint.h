@@ -28,12 +28,25 @@
  */
 
 typedef enum {
-    /*
-     * The current standard open source fingerprinting method.
-     * See https://engineering.salesforce.com/tls-fingerprinting-with-ja3-and-ja3s-247362855967.
-     */
+    /* See https://engineering.salesforce.com/tls-fingerprinting-with-ja3-and-ja3s-247362855967 */
     S2N_FINGERPRINT_JA3,
+    /* See https://github.com/FoxIO-LLC/ja4/tree/main */
+    S2N_FINGERPRINT_JA4,
 } s2n_fingerprint_type;
+
+struct s2n_fingerprint;
+
+S2N_API struct s2n_fingerprint *s2n_fingerprint_new(s2n_fingerprint_type type);
+S2N_API int s2n_fingerprint_wipe(struct s2n_fingerprint *fingerprint);
+S2N_API int s2n_fingerprint_free(struct s2n_fingerprint **fingerprint);
+
+S2N_API int s2n_fingerprint_set_client_hello(struct s2n_fingerprint *fingerprint, struct s2n_client_hello *ch);
+S2N_API int s2n_fingerprint_set_working_buffer(struct s2n_fingerprint *fingerprint,
+        uint8_t *mem, size_t mem_size);
+
+S2N_API int s2n_fingerprint_get_hash_size(struct s2n_fingerprint *fingerprint, uint32_t *size);
+S2N_API int s2n_fingerprint_get_hash(struct s2n_fingerprint *fingerprint,
+        uint32_t max_output_size, uint8_t *output, uint32_t *output_size);
 
 /**
  * Calculates a fingerprint hash for a given ClientHello.
@@ -55,22 +68,3 @@ typedef enum {
 S2N_API int s2n_client_hello_get_fingerprint_hash(struct s2n_client_hello *ch,
         s2n_fingerprint_type type, uint32_t max_hash_size,
         uint8_t *hash, uint32_t *hash_size, uint32_t *str_size);
-
-/**
- * Calculates a full, variable-length fingerprint string for a given ClientHello.
- *
- * Because the length of the string is variable and unknown until the string is
- * calculated, `s2n_client_hello_get_fingerprint_hash` can be called first to
- * determine `max_size` and ensure `output` is sufficiently large.
- *
- * @param ch The ClientHello to fingerprint.
- * @param type The algorithm to use for the fingerprint. Currently only JA3 is supported.
- * @param max_size The maximum size of data that may be written to `output`.
- * If too small for the requested string, an S2N_ERR_T_USAGE error will occur.
- * @param output The location that the requested string will be written to.
- * @param output_size The actual size of the data written to `output`.
- * @returns S2N_SUCCESS on success, S2N_FAILURE on failure.
- */
-S2N_API int s2n_client_hello_get_fingerprint_string(struct s2n_client_hello *ch,
-        s2n_fingerprint_type type, uint32_t max_size,
-        uint8_t *output, uint32_t *output_size);
