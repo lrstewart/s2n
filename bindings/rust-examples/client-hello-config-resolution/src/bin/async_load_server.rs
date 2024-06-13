@@ -21,44 +21,6 @@ impl AsyncAnimalConfigResolver {
     fn new(cert_directory: String) -> Self {
         AsyncAnimalConfigResolver { cert_directory }
     }
-
-    // This method will lookup the appropriate certificates and read them from disk
-    // in an async manner which won't block the tokio task.
-    //
-    // Note that this method consumes `self`. A ConfigResolver can be constructed
-    // from a future that returns `Result<Config, s2n_tls::error::Error>`, with
-    // the main additional requirements that the future is `'static`. This generally
-    // means that it can't have any  interior references.
-    //
-    // If this method took in `&self`, then
-    // ```
-    // let config_resolver = ConfigResolver::new(self.server_config(animal));
-    // ```
-    // wouldn't compile because the compiler would complain that `&self` doesn't
-    // live long enough.
-    async fn server_config(
-        self,
-        animal: String,
-    ) -> Result<s2n_tls::config::Config, s2n_tls::error::Error> {
-        let cert_path = format!("{}/{}-chain.pem", self.cert_directory, animal);
-        let key_path = format!("{}/{}-key.pem", self.cert_directory, animal);
-        // we asynchronously read the cert chain and key from disk
-        let (cert, key) = try_join!(tokio::fs::read(cert_path), tokio::fs::read(key_path))
-            // we map any IO errors to the s2n-tls Error type, as required by the ConfigResolver bounds.
-            .map_err(|io_error| s2n_tls::error::Error::application(Box::new(io_error)))?;
-
-        let mut config = s2n_tls::config::Builder::new();
-        // we can set different policies for different configs. "20190214" doesn't
-        // support TLS 1.3, so any customer requesting www.wombat.com won't be able
-        // to negotiate TLS 1.3
-        let security_policy = match animal.as_str() {
-            "wombat" => Policy::from_version("20190214")?,
-            _ => DEFAULT_TLS13,
-        };
-        config.set_security_policy(&security_policy)?;
-        config.load_pem(&cert, &key)?;
-        config.build()
-    }
 }
 
 impl ClientHelloCallback for AsyncAnimalConfigResolver {
@@ -74,11 +36,13 @@ impl ClientHelloCallback for AsyncAnimalConfigResolver {
             }
         };
 
+        println!("asynchronously setting connection config associated with {sni}");
+
         // simple, limited logic to parse "animal" from "www.animal.com".
         let mut tokens = sni.split('.');
         tokens.next(); // "www"
-        let animal = match tokens.next() {
-            Some(animal) => animal.to_owned(), // "animal"
+        let path = match tokens.next() { // "animal"
+            Some(animal) => format!("{}/{}", self.cert_directory, animal),
             None => {
                 println!("unable to parse sni");
                 return Err(s2n_tls::error::Error::application(
@@ -87,11 +51,40 @@ impl ClientHelloCallback for AsyncAnimalConfigResolver {
             }
         };
 
-        let async_resolver_clone = self.clone();
-        let config_resolver = ConfigResolver::new(async_resolver_clone.server_config(animal));
+        let config_future = async_server_config(path);
+        let config_resolver = ConfigResolver::new(config_future);
         connection.server_name_extension_used();
         Ok(Some(Box::pin(config_resolver)))
     }
+}
+
+// This method will lookup the appropriate certificates and read them from disk
+// in an async manner which won't block the tokio task.
+//
+// Note that this method takes `String` instead of `&str` like the synchronous
+// version in server.rs. ConfigResolver requires a future that is `'static`.
+async fn async_server_config(
+    path: String,
+) -> Result<s2n_tls::config::Config, s2n_tls::error::Error> {
+    let cert_path = format!("{}-chain.pem", path);
+    let key_path = format!("{}-key.pem", path);
+
+    // we asynchronously read the cert chain and key from disk
+    let (cert, key) = try_join!(tokio::fs::read(cert_path), tokio::fs::read(key_path))
+        // we map any IO errors to the s2n-tls Error type, as required by the ConfigResolver bounds.
+        .map_err(|io_error| s2n_tls::error::Error::application(Box::new(io_error)))?;
+
+    let mut config = s2n_tls::config::Builder::new();
+    // we can set different policies for different configs. "20190214" doesn't
+    // support TLS 1.3, so any customer requesting www.wombat.com won't be able
+    // to negotiate TLS 1.3
+    let security_policy = match animal.as_str() {
+        "wombat" => Policy::from_version("20190214")?,
+        _ => DEFAULT_TLS13,
+    };
+    config.set_security_policy(&security_policy)?;
+    config.load_pem(&cert, &key)?;
+    config.build()
 }
 
 #[tokio::main]
