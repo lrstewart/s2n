@@ -199,7 +199,7 @@ int main(int argc, char **argv)
             S2N_ERR_CIPHER_NOT_SUPPORTED,
             /* handshake errors with blinding */
             S2N_ERR_PROTOCOL_DOWNGRADE_DETECTED,
-            S2N_ERR_CERT_UNTRUSTED,
+            S2N_ERR_CERT_VERIFY_HOST,
             /* application data error */
             S2N_ERR_DECRYPT,
         };
@@ -267,11 +267,11 @@ int main(int argc, char **argv)
                     failed_conn = client;
                     closed_conn = server;
                     break;
-                case S2N_ERR_CERT_UNTRUSTED:
+                case S2N_ERR_CERT_VERIFY_HOST:
                     EXPECT_SUCCESS(s2n_connection_set_config(client, untrusted_config));
 
                     EXPECT_FAILURE_WITH_ERRNO(s2n_negotiate_test_server_and_client(server, client),
-                            S2N_ERR_CERT_UNTRUSTED);
+                            S2N_ERR_CERT_VERIFY_HOST);
 
                     failed_conn = client;
                     closed_conn = server;

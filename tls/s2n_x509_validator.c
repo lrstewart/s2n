@@ -223,7 +223,8 @@ static S2N_RESULT s2n_verify_host_information_san_entry(struct s2n_connection *c
         int name_len = ASN1_STRING_length(current_name->d.ia5);
         RESULT_ENSURE_GT(name_len, 0);
 
-        RESULT_ENSURE(conn->verify_host_fn(name, name_len, conn->data_for_verify_host), S2N_ERR_CERT_UNTRUSTED);
+        RESULT_ENSURE(conn->verify_host_fn(name, name_len, conn->data_for_verify_host),
+                S2N_ERR_CERT_VERIFY_HOST);
 
         return S2N_RESULT_OK;
     }
@@ -245,20 +246,21 @@ static S2N_RESULT s2n_verify_host_information_san_entry(struct s2n_connection *c
             RESULT_GUARD(s2n_inet_ntop(AF_INET6, ip_addr, &address));
         } else {
             /* we aren't able to parse this value so skip it */
-            RESULT_BAIL(S2N_ERR_CERT_UNTRUSTED);
+            RESULT_BAIL(S2N_ERR_CERT_VERIFY_HOST);
         }
 
         /* strlen should be safe here since we made sure we were null terminated AND that inet_ntop succeeded */
         const char *name = (const char *) address.data;
         size_t name_len = strlen(name);
 
-        RESULT_ENSURE(conn->verify_host_fn(name, name_len, conn->data_for_verify_host), S2N_ERR_CERT_UNTRUSTED);
+        RESULT_ENSURE(conn->verify_host_fn(name, name_len, conn->data_for_verify_host),
+                S2N_ERR_CERT_VERIFY_HOST);
 
         return S2N_RESULT_OK;
     }
 
     /* we don't understand this entry type so skip it */
-    RESULT_BAIL(S2N_ERR_CERT_UNTRUSTED);
+    RESULT_BAIL(S2N_ERR_CERT_VERIFY_HOST);
 }
 
 static S2N_RESULT s2n_verify_host_information_san(struct s2n_connection *conn, X509 *public_cert, bool *san_found)
@@ -271,10 +273,10 @@ static S2N_RESULT s2n_verify_host_information_san(struct s2n_connection *conn, X
 
     DEFER_CLEANUP(STACK_OF(GENERAL_NAME) *names_list = NULL, GENERAL_NAMES_free_pointer);
     names_list = X509_get_ext_d2i(public_cert, NID_subject_alt_name, NULL, NULL);
-    RESULT_ENSURE(names_list, S2N_ERR_CERT_UNTRUSTED);
+    RESULT_ENSURE(names_list, S2N_ERR_CERT_VERIFY_HOST);
 
     int n = sk_GENERAL_NAME_num(names_list);
-    RESULT_ENSURE(n > 0, S2N_ERR_CERT_UNTRUSTED);
+    RESULT_ENSURE(n > 0, S2N_ERR_CERT_VERIFY_HOST);
 
     s2n_result result = S2N_RESULT_OK;
     for (int i = 0; i < n; i++) {
@@ -290,7 +292,7 @@ static S2N_RESULT s2n_verify_host_information_san(struct s2n_connection *conn, X
     /* if an error was set by one of the entries, then just propagate the error from the last SAN entry call */
     RESULT_GUARD(result);
 
-    RESULT_BAIL(S2N_ERR_CERT_UNTRUSTED);
+    RESULT_BAIL(S2N_ERR_CERT_VERIFY_HOST);
 }
 
 static S2N_RESULT s2n_verify_host_information_common_name(struct s2n_connection *conn, X509 *public_cert, bool *cn_found)
@@ -300,7 +302,7 @@ static S2N_RESULT s2n_verify_host_information_common_name(struct s2n_connection 
     RESULT_ENSURE_REF(cn_found);
 
     X509_NAME *subject_name = X509_get_subject_name(public_cert);
-    RESULT_ENSURE(subject_name, S2N_ERR_CERT_UNTRUSTED);
+    RESULT_ENSURE(subject_name, S2N_ERR_CERT_VERIFY_HOST);
 
     int curr_idx = -1;
     while (true) {
@@ -312,10 +314,10 @@ static S2N_RESULT s2n_verify_host_information_common_name(struct s2n_connection 
         }
     }
 
-    RESULT_ENSURE(curr_idx >= 0, S2N_ERR_CERT_UNTRUSTED);
+    RESULT_ENSURE(curr_idx >= 0, S2N_ERR_CERT_VERIFY_HOST);
 
     ASN1_STRING *common_name = X509_NAME_ENTRY_get_data(X509_NAME_get_entry(subject_name, curr_idx));
-    RESULT_ENSURE(common_name, S2N_ERR_CERT_UNTRUSTED);
+    RESULT_ENSURE(common_name, S2N_ERR_CERT_VERIFY_HOST);
 
     /* X520CommonName allows the following ANSI string types per RFC 5280 Appendix A.1 */
     RESULT_ENSURE(ASN1_STRING_type(common_name) == V_ASN1_TELETEXSTRING
@@ -323,7 +325,7 @@ static S2N_RESULT s2n_verify_host_information_common_name(struct s2n_connection 
                     || ASN1_STRING_type(common_name) == V_ASN1_UNIVERSALSTRING
                     || ASN1_STRING_type(common_name) == V_ASN1_UTF8STRING
                     || ASN1_STRING_type(common_name) == V_ASN1_BMPSTRING,
-            S2N_ERR_CERT_UNTRUSTED);
+            S2N_ERR_CERT_VERIFY_HOST);
 
     /* at this point we have a valid CN value */
     *cn_found = true;
@@ -334,7 +336,8 @@ static S2N_RESULT s2n_verify_host_information_common_name(struct s2n_connection 
     uint32_t len = (uint32_t) cn_len;
     RESULT_ENSURE_LTE(len, s2n_array_len(peer_cn) - 1);
     RESULT_CHECKED_MEMCPY(peer_cn, ASN1_STRING_data(common_name), len);
-    RESULT_ENSURE(conn->verify_host_fn(peer_cn, len, conn->data_for_verify_host), S2N_ERR_CERT_UNTRUSTED);
+    RESULT_ENSURE(conn->verify_host_fn(peer_cn, len, conn->data_for_verify_host),
+            S2N_ERR_CERT_VERIFY_HOST);
 
     return S2N_RESULT_OK;
 }
@@ -379,7 +382,8 @@ static S2N_RESULT s2n_verify_host_information(struct s2n_connection *conn, X509 
     size_t name_len = 0;
 
     /* at this point, we don't have anything to identify the certificate with so pass an empty string to the callback */
-    RESULT_ENSURE(conn->verify_host_fn(name, name_len, conn->data_for_verify_host), S2N_ERR_CERT_UNTRUSTED);
+    RESULT_ENSURE(conn->verify_host_fn(name, name_len, conn->data_for_verify_host),
+            S2N_ERR_CERT_VERIFY_HOST);
 
     return S2N_RESULT_OK;
 }

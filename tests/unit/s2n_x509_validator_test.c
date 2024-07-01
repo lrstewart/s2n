@@ -629,7 +629,7 @@ int main(int argc, char **argv)
         s2n_pkey_type pkey_type = S2N_PKEY_TYPE_UNKNOWN;
         EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator, connection, chain_data, chain_len,
                                         &pkey_type, &public_key_out),
-                S2N_ERR_CERT_UNTRUSTED);
+                S2N_ERR_CERT_VERIFY_HOST);
 
         EXPECT_EQUAL(1, verify_data.callback_invoked);
         s2n_connection_free(connection);
@@ -676,7 +676,7 @@ int main(int argc, char **argv)
         s2n_pkey_type pkey_type = S2N_PKEY_TYPE_UNKNOWN;
         EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator, connection, chain_data, chain_len,
                                         &pkey_type, &public_key_out),
-                S2N_ERR_CERT_UNTRUSTED);
+                S2N_ERR_CERT_VERIFY_HOST);
         EXPECT_EQUAL(1, verify_data.callback_invoked);
         s2n_connection_free(connection);
         s2n_x509_validator_wipe(&validator);
@@ -846,7 +846,7 @@ int main(int argc, char **argv)
         s2n_pkey_type pkey_type = S2N_PKEY_TYPE_UNKNOWN;
         EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator, connection, chain_data, chain_len,
                                         &pkey_type, &public_key_out),
-                S2N_ERR_CERT_UNTRUSTED);
+                S2N_ERR_CERT_VERIFY_HOST);
 
         EXPECT_EQUAL(0, verify_data.found_name);
         EXPECT_EQUAL(1, verify_data.callback_invoked);
@@ -1635,7 +1635,7 @@ int main(int argc, char **argv)
         s2n_pkey_type pkey_type = S2N_PKEY_TYPE_UNKNOWN;
         EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator, connection, chain_data, chain_len,
                                         &pkey_type, &public_key_out),
-                S2N_ERR_CERT_UNTRUSTED);
+                S2N_ERR_CERT_VERIFY_HOST);
 
         EXPECT_EQUAL(S2N_PKEY_TYPE_UNKNOWN, pkey_type);
         s2n_connection_free(connection);
@@ -1733,7 +1733,7 @@ int main(int argc, char **argv)
         s2n_pkey_type pkey_type = S2N_PKEY_TYPE_UNKNOWN;
         EXPECT_ERROR_WITH_ERRNO(s2n_x509_validator_validate_cert_chain(&validator, connection, chain_data, chain_len,
                                         &pkey_type, &public_key_out),
-                S2N_ERR_CERT_UNTRUSTED);
+                S2N_ERR_CERT_VERIFY_HOST);
 
         EXPECT_EQUAL(S2N_PKEY_TYPE_UNKNOWN, pkey_type);
         s2n_connection_free(connection);
