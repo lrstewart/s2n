@@ -11,7 +11,8 @@ members = [
 # generate/main.rs
 exclude = [
     "generate",
-    "bench"
+    "bench",
+    "s2n-tls-tokio/tests/renegotiate",
 ]
 
 [profile.release]
