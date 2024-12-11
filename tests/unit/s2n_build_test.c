@@ -139,6 +139,14 @@ int main()
         }
     }
 
+    if (strstr(s2n_libcrypto, "openssl-1.0.2-fips") != NULL) {
+        if (s2n_is_in_fips_mode()) {
+            FAIL_MSG("openssl-1.0.2-fips IS IN FIPS MODE :)");
+        } else {
+            FAIL_MSG("openssl-1.0.2-fips IS NOT IN FIPS MODE D:");
+        }
+    }
+
     char s2n_libcrypto_copy[MAX_LIBCRYPTO_NAME_LEN] = { 0 };
     EXPECT_TRUE(strlen(s2n_libcrypto) < MAX_LIBCRYPTO_NAME_LEN);
     EXPECT_OK(s2n_test_lowercase_copy(s2n_libcrypto, &s2n_libcrypto_copy[0], s2n_array_len(s2n_libcrypto_copy)));
