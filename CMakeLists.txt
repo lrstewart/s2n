@@ -568,10 +568,8 @@ if (BUILD_TESTING)
     foreach(fips_mode ${TEST_FIPS_MODES})
         # NAME_WE: name without extension
         get_filename_component(test_case_name ${test_case} NAME_WE)
-
-        if(fips_mode)
+        if (fips_mode)
             set(test_case_name ${test_case_name}+fips)
-            set(target_compile_definitions(${test_case_name} PRIVATE S2N_TEST_IN_FIPS_MODE))
         endif()
 
         add_executable(${test_case_name} ${test_case})
@@ -591,6 +589,9 @@ if (BUILD_TESTING)
         )
         if (S2N_LTO)
             target_compile_options(${test_case_name} PRIVATE -flto)
+        endif()
+        if (fips_mode)
+            target_compile_definitions(${test_case_name} PRIVATE S2N_TEST_IN_FIPS_MODE)
         endif()
 
         add_test(
