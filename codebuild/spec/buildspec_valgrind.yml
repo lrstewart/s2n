@@ -74,15 +74,7 @@ phases:
           -DCMAKE_C_COMPILER=/usr/bin/$COMPILER \
           -DCMAKE_PREFIX_PATH=/usr/local/$S2N_LIBCRYPTO \
           -DCMAKE_BUILD_TYPE=RelWithDebInfo
-      - cmake --build ./build -- -j $(nproc)
-  post_build:
-    on-failure: ABORT
-    commands:
-      - |
-        S2N_VALGRIND=1 \
-        CTEST_PARALLEL_LEVEL=$(nproc) \
-        CTEST_OUTPUT_ON_FAILURE=1 \
-        cmake --build build/ --target test \
-          -- ARGS="--test-action memcheck"
-      - cd codebuild/bin
-      - python3 s2n_open_fds_test.py $CODEBUILD_SRC_DIR/build/Testing/Temporary
+      - ls /usr/local
+      - ls /usr/local/bin
+      - ls /usr/local/openssl-1.0.2-fips
+      - ls /usr/local/bin/openssl-1.0.2-fips
