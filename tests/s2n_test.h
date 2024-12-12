@@ -220,10 +220,9 @@ bool s2n_use_color_in_output = true;
 
 #define S2N_TEST_OPTIONALLY_ENABLE_FIPS_MODE() \
     do { \
+        ERR_load_crypto_strings(); \
         if (FIPS_mode_set(1) == 0) { \
-            unsigned long fips_rc = ERR_get_error(); \
-            char ssl_error_buf[256]; \
-            fprintf(stderr, "s2nd failed to enter FIPS mode with RC: %lu; String: %s\n", fips_rc, ERR_error_string(fips_rc, ssl_error_buf)); \
+            fprintf(stderr, "s2nd failed to enter FIPS mode: %s\n", ERR_error_string(ERR_get_error(), NULL)); \
             return 1; \
         } \
         printf("s2n entered FIPS mode\n"); \
