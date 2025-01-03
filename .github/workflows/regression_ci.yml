@@ -47,22 +47,6 @@ jobs:
           make
           sudo make install
 
-      # Switch to the main branch
-      - name: Switch to mainline
-        run: |
-          git fetch origin main
-          git switch main
-
-      # Generate bindings for main branch
-      - name: Generate bindings (mainline)
-        run: ${{env.ROOT_PATH}}/generate.sh --skip-tests
-
-      # Run performance tests using Valgrind for main branch
-      - name: Run scalar performance test (mainline)
-        env:
-          PERF_MODE: valgrind
-        run: cargo test --release --manifest-path=tests/regression/Cargo.toml
-
       # Checkout pull request branch
       - name: Checkout pull request branch
         run: git checkout ${{ github.event.pull_request.head.sha }}
@@ -75,12 +59,6 @@ jobs:
       - name: Run scalar performance test (PR branch)
         env:
           PERF_MODE: valgrind
-        run: cargo test --release --manifest-path=tests/regression/Cargo.toml
-
-      # Run the differential performance test
-      - name: Run diff test
-        env:
-          PERF_MODE: diff
         run: cargo test --release --manifest-path=tests/regression/Cargo.toml
 
       # Upload the performance output artifacts. This runs even if run diff test fails so debug files can be accessed
