@@ -1,0 +1,23 @@
+name: Validate CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate_ci:
+    name: CI is valid
+    runs-on: ubuntu-latest
+    steps:
+      - name: Retrieve Statuses
+        id: get_statuses
+        uses: octokit/request-action@v2.x
+        with:
+          route: GET /repos/{owner}/{repo}/commits/{ref}/statuses
+          owner: aws
+          repo: s2n-tls
+          per_page: 100
+          ref: ${{ github.sha }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: "echo statuses: '${{ steps.get_statuses.outputs.data }}'"
