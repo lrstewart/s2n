@@ -45,6 +45,8 @@ bool s2n_libcrypto_is_fips(void)
     if (FIPS_mode() == 1) {
         return true;
     }
+#elif S2N_OPENSSL_VERSION_AT_LEAST(3, 0, 0)
+    return EVP_default_properties_is_fips_enabled(NULL);
 #endif
     return false;
 }
