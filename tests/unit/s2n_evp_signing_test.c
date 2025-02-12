@@ -35,12 +35,6 @@
 
 const uint8_t input_data[INPUT_DATA_SIZE] = "hello hash";
 
-static bool s2n_hash_alg_is_supported(s2n_signature_algorithm sig_alg, s2n_hash_algorithm hash_alg)
-{
-    return (hash_alg != S2N_HASH_NONE) && (hash_alg != S2N_HASH_MD5)
-            && (hash_alg != S2N_HASH_MD5_SHA1 || sig_alg == S2N_SIGNATURE_RSA);
-}
-
 static S2N_RESULT s2n_test_hash_init(struct s2n_hash_state *hash_state, s2n_hash_algorithm hash_alg)
 {
     RESULT_GUARD_POSIX(s2n_hash_init(hash_state, hash_alg));
@@ -68,69 +62,58 @@ static S2N_RESULT s2n_test_evp_sign(s2n_signature_algorithm sig_alg, s2n_hash_al
 }
 
 static S2N_RESULT s2n_test_evp_verify(s2n_signature_algorithm sig_alg, s2n_hash_algorithm hash_alg,
-        struct s2n_pkey *public_key,
-        struct s2n_blob *evp_signature, struct s2n_blob *expected_signature)
+        struct s2n_pkey *public_key, struct s2n_blob *expected_signature)
 {
     DEFER_CLEANUP(struct s2n_hash_state hash_state = { 0 }, s2n_hash_free);
     RESULT_GUARD_POSIX(s2n_hash_new(&hash_state));
 
     /* Verify that the EVP methods can verify their own signature */
     RESULT_GUARD(s2n_test_hash_init(&hash_state, hash_alg));
-    RESULT_GUARD_POSIX(s2n_evp_verify(public_key, sig_alg, &hash_state, evp_signature));
+    RESULT_GUARD_POSIX(s2n_evp_verify(public_key, sig_alg, &hash_state, expected_signature));
 
     /* Verify that using the pkey directly can verify own signature */
     RESULT_GUARD(s2n_test_hash_init(&hash_state, hash_alg));
-    RESULT_GUARD_POSIX(s2n_pkey_verify(public_key, sig_alg, &hash_state, evp_signature));
-
-    /* Verify that the EVP methods can verify the known good signature */
-    RESULT_GUARD(s2n_test_hash_init(&hash_state, hash_alg));
-    RESULT_GUARD_POSIX(s2n_evp_verify(public_key, sig_alg, &hash_state, expected_signature));
+    RESULT_GUARD_POSIX(s2n_pkey_verify(public_key, sig_alg, &hash_state, expected_signature));
 
     return S2N_RESULT_OK;
+}
+
+static bool s2n_test_legacy_signing_supported()
+{
+    return !s2n_libcrypto_is_openssl_fips();
 }
 
 int main(int argc, char **argv)
 {
     BEGIN_TEST();
 
-    /* Sanity check that we're enabling evp signing properly.
-     * awslc-fips is known to require evp signing.
+    if (s2n_libcrypto_is_awslc_fips()) {
+        EXPECT_TRUE(s2n_evp_signing_requires_evp_hash());
+    } else {
+        /* No other libcrypto supports digest-and-sign.
+         * digest-and-sign is really opt-in, not opt-out.
+         * Even where the right functions exist, they may not behave
+         * in the way that s2n-tls expects.
+         */
+        EXPECT_FALSE(s2n_evp_signing_requires_evp_hash());
+    }
+
+    /* Previously, we tested with all combinations of hash_alg + sig_alg.
+     * However, that led to complicated logic for filtering out "invalid"
+     * combinations.
+     *
+     * For example: awslc-fips will fail for MD5+ECDSA. However, that is not
+     * a real problem because there is no valid signature scheme that uses both
+     * MD5 and ECDSA.
+     *
+     * It's simpler to just test with all valid signature schemes.
      */
-    if (s2n_is_in_fips_mode() && s2n_libcrypto_is_awslc()) {
-        EXPECT_TRUE(s2n_evp_signing_supported());
-    }
-
-    if (!s2n_evp_signing_supported()) {
-        END_TEST();
-    }
-
-    DEFER_CLEANUP(struct s2n_hash_state hash_state = { 0 }, s2n_hash_free);
-    EXPECT_SUCCESS(s2n_hash_new(&hash_state));
+    const struct s2n_signature_preferences *all_sig_schemes =
+            security_policy_test_all.signature_preferences;
 
     struct s2n_cert_chain_and_key *rsa_cert_chain = NULL;
     EXPECT_SUCCESS(s2n_test_cert_chain_and_key_new(&rsa_cert_chain,
             S2N_RSA_2048_PKCS1_CERT_CHAIN, S2N_RSA_2048_PKCS1_KEY));
-
-    /* Test that unsupported hash algs are treated as invalid.
-     * Later tests will ignore unsupported algs, so ensure they are actually invalid. */
-    {
-        /* This pkey should never actually be needed -- any pkey will do */
-        struct s2n_pkey *pkey = rsa_cert_chain->private_key;
-
-        for (s2n_signature_algorithm sig_alg = 0; sig_alg <= UINT8_MAX; sig_alg++) {
-            for (s2n_hash_algorithm hash_alg = 0; hash_alg < S2N_HASH_SENTINEL; hash_alg++) {
-                if (s2n_hash_alg_is_supported(sig_alg, hash_alg)) {
-                    continue;
-                }
-
-                s2n_stack_blob(evp_signature, OUTPUT_DATA_SIZE, OUTPUT_DATA_SIZE);
-                EXPECT_ERROR_WITH_ERRNO(s2n_test_evp_sign(sig_alg, hash_alg, pkey, &evp_signature),
-                        S2N_ERR_HASH_INVALID_ALGORITHM);
-                EXPECT_ERROR_WITH_ERRNO(s2n_test_evp_verify(sig_alg, hash_alg, pkey, &evp_signature, &evp_signature),
-                        S2N_ERR_HASH_INVALID_ALGORITHM);
-            }
-        }
-    };
 
     /* EVP signing must match RSA signing */
     {
@@ -144,26 +127,34 @@ int main(int argc, char **argv)
         EXPECT_PKEY_USES_EVP_SIGNING(private_key);
         EXPECT_PKEY_USES_EVP_SIGNING(public_key);
 
-        for (s2n_hash_algorithm hash_alg = 0; hash_alg < S2N_HASH_SENTINEL; hash_alg++) {
-            if (!s2n_hash_alg_is_supported(sig_alg, hash_alg)) {
+        for (size_t i = 0; i < all_sig_schemes->count; i++) {
+            const struct s2n_signature_scheme *scheme = all_sig_schemes->signature_schemes[i];
+            if (scheme->sig_alg != sig_alg) {
                 continue;
             }
+            const s2n_hash_algorithm hash_alg = scheme->hash_alg;
 
-            /* Calculate the signature using EVP methods */
+            /* Test that EVP can sign and verify */
             s2n_stack_blob(evp_signature, OUTPUT_DATA_SIZE, OUTPUT_DATA_SIZE);
             EXPECT_OK(s2n_test_evp_sign(sig_alg, hash_alg, private_key, &evp_signature));
+            EXPECT_OK(s2n_test_evp_verify(sig_alg, hash_alg, public_key, &evp_signature));
 
-            /* Calculate the signature using RSA methods */
-            s2n_stack_blob(rsa_signature, OUTPUT_DATA_SIZE, OUTPUT_DATA_SIZE);
-            EXPECT_OK(s2n_test_hash_init(&hash_state, hash_alg));
-            EXPECT_SUCCESS(s2n_rsa_pkcs1v15_sign(private_key, &hash_state, &rsa_signature));
+            /* Verify using legacy methods */
+            if (s2n_test_legacy_signing_supported()) {
+                DEFER_CLEANUP(struct s2n_hash_state hash_state = { 0 }, s2n_hash_free);
+                EXPECT_SUCCESS(s2n_hash_new(&hash_state));
 
-            /* Verify that the EVP methods can verify both signatures */
-            EXPECT_OK(s2n_test_evp_verify(sig_alg, hash_alg, public_key, &evp_signature, &rsa_signature));
+                s2n_stack_blob(rsa_signature, OUTPUT_DATA_SIZE, OUTPUT_DATA_SIZE);
+                EXPECT_OK(s2n_test_hash_init(&hash_state, hash_alg));
+                EXPECT_SUCCESS(s2n_rsa_pkcs1v15_sign(private_key, &hash_state, &rsa_signature));
 
-            /* Verify that the RSA methods can verify the EVP signature */
-            EXPECT_OK(s2n_test_hash_init(&hash_state, hash_alg));
-            EXPECT_SUCCESS(s2n_rsa_pkcs1v15_verify(public_key, &hash_state, &evp_signature));
+                /* EVP verifies legacy signature */
+                EXPECT_OK(s2n_test_evp_verify(sig_alg, hash_alg, public_key, &rsa_signature));
+
+                /* legacy verifies EVP signature */
+                EXPECT_OK(s2n_test_hash_init(&hash_state, hash_alg));
+                EXPECT_SUCCESS(s2n_rsa_pkcs1v15_verify(public_key, &hash_state, &evp_signature));
+            }
         }
     };
 
@@ -182,26 +173,34 @@ int main(int argc, char **argv)
         EXPECT_PKEY_USES_EVP_SIGNING(private_key);
         EXPECT_PKEY_USES_EVP_SIGNING(public_key);
 
-        for (s2n_hash_algorithm hash_alg = 0; hash_alg < S2N_HASH_SENTINEL; hash_alg++) {
-            if (!s2n_hash_alg_is_supported(sig_alg, hash_alg)) {
+        for (size_t i = 0; i < all_sig_schemes->count; i++) {
+            const struct s2n_signature_scheme *scheme = all_sig_schemes->signature_schemes[i];
+            if (scheme->sig_alg != sig_alg) {
                 continue;
             }
+            const s2n_hash_algorithm hash_alg = scheme->hash_alg;
 
-            /* Calculate the signature using EVP methods */
+            /* Test that EVP can sign and verify */
             s2n_stack_blob(evp_signature, OUTPUT_DATA_SIZE, OUTPUT_DATA_SIZE);
             EXPECT_OK(s2n_test_evp_sign(sig_alg, hash_alg, private_key, &evp_signature));
+            EXPECT_OK(s2n_test_evp_verify(sig_alg, hash_alg, public_key, &evp_signature));
 
-            /* Calculate the signature using ECDSA methods */
-            s2n_stack_blob(ecdsa_signature, OUTPUT_DATA_SIZE, OUTPUT_DATA_SIZE);
-            EXPECT_OK(s2n_test_hash_init(&hash_state, hash_alg));
-            EXPECT_SUCCESS(s2n_ecdsa_sign(private_key, sig_alg, &hash_state, &ecdsa_signature));
+            /* Verify using legacy methods */
+            if (s2n_test_legacy_signing_supported()) {
+                DEFER_CLEANUP(struct s2n_hash_state hash_state = { 0 }, s2n_hash_free);
+                EXPECT_SUCCESS(s2n_hash_new(&hash_state));
 
-            /* Verify that the EVP methods can verify both signatures */
-            EXPECT_OK(s2n_test_evp_verify(sig_alg, hash_alg, public_key, &evp_signature, &ecdsa_signature));
+                s2n_stack_blob(ecdsa_signature, OUTPUT_DATA_SIZE, OUTPUT_DATA_SIZE);
+                EXPECT_OK(s2n_test_hash_init(&hash_state, hash_alg));
+                EXPECT_SUCCESS(s2n_ecdsa_sign(private_key, sig_alg, &hash_state, &ecdsa_signature));
 
-            /* Verify that the ECDSA methods can verify the EVP signature */
-            EXPECT_OK(s2n_test_hash_init(&hash_state, hash_alg));
-            EXPECT_SUCCESS(s2n_ecdsa_verify(public_key, sig_alg, &hash_state, &evp_signature));
+                /* EVP verifies legacy signature */
+                EXPECT_OK(s2n_test_evp_verify(sig_alg, hash_alg, public_key, &ecdsa_signature));
+
+                /* legacy verifies EVP signature */
+                EXPECT_OK(s2n_test_hash_init(&hash_state, hash_alg));
+                EXPECT_SUCCESS(s2n_ecdsa_verify(public_key, sig_alg, &hash_state, &evp_signature));
+            }
         }
 
         EXPECT_SUCCESS(s2n_cert_chain_and_key_free(ecdsa_cert_chain));
@@ -219,26 +218,34 @@ int main(int argc, char **argv)
         EXPECT_PKEY_USES_EVP_SIGNING(private_key);
         EXPECT_PKEY_USES_EVP_SIGNING(public_key);
 
-        for (s2n_hash_algorithm hash_alg = 0; hash_alg < S2N_HASH_SENTINEL; hash_alg++) {
-            if (!s2n_hash_alg_is_supported(sig_alg, hash_alg)) {
+        for (size_t i = 0; i < all_sig_schemes->count; i++) {
+            const struct s2n_signature_scheme *scheme = all_sig_schemes->signature_schemes[i];
+            if (scheme->sig_alg != sig_alg) {
                 continue;
             }
+            const s2n_hash_algorithm hash_alg = scheme->hash_alg;
 
-            /* Calculate the signature using EVP methods */
+            /* Test that EVP can sign and verify */
             s2n_stack_blob(evp_signature, OUTPUT_DATA_SIZE, OUTPUT_DATA_SIZE);
             EXPECT_OK(s2n_test_evp_sign(sig_alg, hash_alg, private_key, &evp_signature));
+            EXPECT_OK(s2n_test_evp_verify(sig_alg, hash_alg, public_key, &evp_signature));
 
-            /* Calculate the signature using RSA-PSS methods */
-            s2n_stack_blob(rsa_pss_signature, OUTPUT_DATA_SIZE, OUTPUT_DATA_SIZE);
-            EXPECT_OK(s2n_test_hash_init(&hash_state, hash_alg));
-            EXPECT_SUCCESS(s2n_rsa_pss_sign(private_key, &hash_state, &rsa_pss_signature));
+            /* Verify using legacy methods */
+            if (s2n_test_legacy_signing_supported()) {
+                DEFER_CLEANUP(struct s2n_hash_state hash_state = { 0 }, s2n_hash_free);
+                EXPECT_SUCCESS(s2n_hash_new(&hash_state));
 
-            /* Verify that the EVP methods can verify both signatures */
-            EXPECT_OK(s2n_test_evp_verify(sig_alg, hash_alg, public_key, &evp_signature, &rsa_pss_signature));
+                s2n_stack_blob(rsa_pss_signature, OUTPUT_DATA_SIZE, OUTPUT_DATA_SIZE);
+                EXPECT_OK(s2n_test_hash_init(&hash_state, hash_alg));
+                EXPECT_SUCCESS(s2n_rsa_pss_sign(private_key, &hash_state, &rsa_pss_signature));
 
-            /* Verify that the RSA-PSS methods can verify the EVP signature */
-            EXPECT_OK(s2n_test_hash_init(&hash_state, hash_alg));
-            EXPECT_SUCCESS(s2n_rsa_pss_verify(public_key, &hash_state, &evp_signature));
+                /* EVP verifies legacy signature */
+                EXPECT_OK(s2n_test_evp_verify(sig_alg, hash_alg, public_key, &rsa_pss_signature));
+
+                /* legacy verifies EVP signature */
+                EXPECT_OK(s2n_test_hash_init(&hash_state, hash_alg));
+                EXPECT_SUCCESS(s2n_rsa_pss_verify(public_key, &hash_state, &evp_signature));
+            }
         }
     }
 
@@ -257,26 +264,34 @@ int main(int argc, char **argv)
         EXPECT_PKEY_USES_EVP_SIGNING(private_key);
         EXPECT_PKEY_USES_EVP_SIGNING(public_key);
 
-        for (s2n_hash_algorithm hash_alg = 0; hash_alg < S2N_HASH_SENTINEL; hash_alg++) {
-            if (!s2n_hash_alg_is_supported(sig_alg, hash_alg)) {
+        for (size_t i = 0; i < all_sig_schemes->count; i++) {
+            const struct s2n_signature_scheme *scheme = all_sig_schemes->signature_schemes[i];
+            if (scheme->sig_alg != sig_alg) {
                 continue;
             }
+            const s2n_hash_algorithm hash_alg = scheme->hash_alg;
 
-            /* Calculate the signature using EVP methods */
+            /* Test that EVP can sign and verify */
             s2n_stack_blob(evp_signature, OUTPUT_DATA_SIZE, OUTPUT_DATA_SIZE);
             EXPECT_OK(s2n_test_evp_sign(sig_alg, hash_alg, private_key, &evp_signature));
+            EXPECT_OK(s2n_test_evp_verify(sig_alg, hash_alg, public_key, &evp_signature));
 
-            /* Calculate the signature using RSA-PSS methods */
-            s2n_stack_blob(rsa_pss_signature, OUTPUT_DATA_SIZE, OUTPUT_DATA_SIZE);
-            EXPECT_OK(s2n_test_hash_init(&hash_state, hash_alg));
-            EXPECT_SUCCESS(s2n_rsa_pss_sign(private_key, &hash_state, &rsa_pss_signature));
+            /* Verify using legacy methods */
+            if (s2n_test_legacy_signing_supported()) {
+                DEFER_CLEANUP(struct s2n_hash_state hash_state = { 0 }, s2n_hash_free);
+                EXPECT_SUCCESS(s2n_hash_new(&hash_state));
 
-            /* Verify that the EVP methods can verify both signatures */
-            EXPECT_OK(s2n_test_evp_verify(sig_alg, hash_alg, public_key, &evp_signature, &rsa_pss_signature));
+                s2n_stack_blob(rsa_pss_signature, OUTPUT_DATA_SIZE, OUTPUT_DATA_SIZE);
+                EXPECT_OK(s2n_test_hash_init(&hash_state, hash_alg));
+                EXPECT_SUCCESS(s2n_rsa_pss_sign(private_key, &hash_state, &rsa_pss_signature));
 
-            /* Verify that the RSA-PSS methods can verify the EVP signature */
-            EXPECT_OK(s2n_test_hash_init(&hash_state, hash_alg));
-            EXPECT_SUCCESS(s2n_rsa_pss_verify(public_key, &hash_state, &evp_signature));
+                /* EVP verifies legacy signature */
+                EXPECT_OK(s2n_test_evp_verify(sig_alg, hash_alg, public_key, &rsa_pss_signature));
+
+                /* legacy verifies EVP signature */
+                EXPECT_OK(s2n_test_hash_init(&hash_state, hash_alg));
+                EXPECT_SUCCESS(s2n_rsa_pss_verify(public_key, &hash_state, &evp_signature));
+            }
         }
 
         EXPECT_SUCCESS(s2n_cert_chain_and_key_free(rsa_pss_cert_chain));
