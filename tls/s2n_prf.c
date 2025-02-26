@@ -391,11 +391,11 @@ static const struct s2n_p_hash_hmac s2n_internal_p_hash_hmac = {
 
 const struct s2n_p_hash_hmac *s2n_get_hmac_implementation()
 {
-#if defined(OPENSSL_IS_BORINGSSL) || defined(OPENSSL_IS_AWSLC)
-    return s2n_is_in_fips_mode() ? &s2n_evp_hmac_p_hash_hmac : &s2n_internal_p_hash_hmac;
-#else
-    return s2n_is_in_fips_mode() ? &s2n_evp_pkey_p_hash_hmac : &s2n_internal_p_hash_hmac;
-#endif
+    if (s2n_is_in_fips_mode) {
+        PTR_BAIL(S2N_ERR_TEST_ASSERTION);
+    } else {
+        return &s2n_internal_p_hash_hmac;
+    }
 }
 
 static int s2n_p_hash(struct s2n_prf_working_space *ws, s2n_hmac_algorithm alg, struct s2n_blob *secret, struct s2n_blob *label,
@@ -405,6 +405,7 @@ static int s2n_p_hash(struct s2n_prf_working_space *ws, s2n_hmac_algorithm alg, 
     POSIX_GUARD(s2n_hmac_digest_size(alg, &digest_size));
 
     const struct s2n_p_hash_hmac *hmac = s2n_get_hmac_implementation();
+    POSIX_ENSURE_REF(hmac);
 
     /* First compute hmac(secret + A(0)) */
     POSIX_GUARD(hmac->init(ws, alg, secret));
@@ -471,6 +472,7 @@ S2N_RESULT s2n_prf_new(struct s2n_connection *conn)
 
     /* Allocate the hmac state */
     const struct s2n_p_hash_hmac *hmac_impl = s2n_get_hmac_implementation();
+    RESULT_ENSURE_REF(hmac_impl);
     RESULT_GUARD_POSIX(hmac_impl->alloc(conn->prf_space));
     return S2N_RESULT_OK;
 }
@@ -481,6 +483,7 @@ S2N_RESULT s2n_prf_wipe(struct s2n_connection *conn)
     RESULT_ENSURE_REF(conn->prf_space);
 
     const struct s2n_p_hash_hmac *hmac_impl = s2n_get_hmac_implementation();
+    RESULT_ENSURE_REF(hmac_impl);
     RESULT_GUARD_POSIX(hmac_impl->reset(conn->prf_space));
 
     return S2N_RESULT_OK;
@@ -494,6 +497,7 @@ S2N_RESULT s2n_prf_free(struct s2n_connection *conn)
     }
 
     const struct s2n_p_hash_hmac *hmac_impl = s2n_get_hmac_implementation();
+    RESULT_ENSURE_REF(hmac_impl);
     RESULT_GUARD_POSIX(hmac_impl->free(conn->prf_space));
 
     RESULT_GUARD_POSIX(s2n_free_object((uint8_t **) &conn->prf_space, sizeof(struct s2n_prf_working_space)));
