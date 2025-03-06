@@ -225,6 +225,8 @@ int main(int argc, char **argv)
 {
     BEGIN_TEST();
 
+    for (size_t _count = 0; _count < 1000000; _count++) {
+
     S2N_INIT_CLIENT_HELLO(minimal_client_hello_bytes,
             S2N_TEST_CLIENT_HELLO_VERSION,
             S2N_TEST_CLIENT_HELLO_AFTER_VERSION,
@@ -1515,6 +1517,6 @@ int main(int argc, char **argv)
             EXPECT_BYTEARRAY_EQUAL(expected, output, output_size);
         };
     };
-
+    }
     END_TEST();
 }
