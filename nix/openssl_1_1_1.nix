@@ -17,6 +17,7 @@ pkgs.stdenv.mkDerivation rec {
 
   configurePhase = ''
     ./config -d shared -g3 -fPIC              \
+         enable-weak-ssl-ciphers \
          no-md2 no-rc5 no-rfc3779 no-sctp no-ssl-trace no-zlib     \
          no-hw no-mdc2 no-seed no-idea enable-ec_nistp_64_gcc_128 no-camellia\
          no-bf no-ripemd no-dsa no-ssl2 no-ssl3 no-capieng                  \

@@ -1,7 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-from common import Protocols
-from providers import S2N
+from common import Ciphers, Protocols
+from providers import S2N, OpenSSL
 from global_flags import get_flag, S2N_FIPS_MODE
 
 
@@ -74,6 +74,12 @@ def invalid_test_parameters(*args, **kwargs):
 
     certificates = [cert for cert in [certificate, client_certificate] if cert]
 
+    # Some ciphers are so deprecated they require special compile time options to enable.
+    # Other providers could support them, but it would require more effort.
+    # The minimal set of providers here is sufficient.
+    legacy_ciphers = [ Ciphers.ECDHE_RSA_RC4_SHA, Ciphers.ECDHE_RSA_DES_CBC3_SHA ]
+    legacy_providers = [ S2N, OpenSSL ]
+
     # Older versions do not support RSA-PSS-PSS certificates
     if protocol and protocol < Protocols.TLS12:
         if client_certificate and client_certificate.algorithm == "RSAPSS":
@@ -102,6 +108,8 @@ def invalid_test_parameters(*args, **kwargs):
 
         for provider_ in providers:
             if not provider_.supports_cipher(cipher, with_curve=curve):
+                return True
+            if cipher in legacy_ciphers and provider_ not in legacy_providers:
                 return True
 
         if get_flag(S2N_FIPS_MODE):
