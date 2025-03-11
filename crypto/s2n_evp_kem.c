@@ -85,8 +85,11 @@ int s2n_evp_kem_decapsulate(IN const struct s2n_kem *kem, OUT uint8_t *shared_se
     POSIX_ENSURE_REF(kem_pkey_ctx);
 
     size_t shared_secret_size = kem->shared_secret_key_length;
+    /* We strip the `const` from ciphertext because some libcrypto versions of
+     * the method do not expect a `const`. It is inconsistent.
+     */
     POSIX_GUARD_OSSL(EVP_PKEY_decapsulate(kem_pkey_ctx, shared_secret, &shared_secret_size,
-                             ciphertext, kem->ciphertext_length),
+                             (uint8_t *) (uintptr_t) ciphertext, kem->ciphertext_length),
             S2N_ERR_PQ_CRYPTO);
     POSIX_ENSURE_EQ(kem->shared_secret_key_length, shared_secret_size);
 
