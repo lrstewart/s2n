@@ -6,7 +6,7 @@ import os
 from enum import Enum, auto
 
 from configuration import available_ports
-from common import ProviderOptions, Protocols, random_str
+from common import Ciphers, ProviderOptions, Protocols, random_str
 from fixtures import managed_process  # lgtm [py/unused-import]
 from providers import Provider, S2N
 from utils import invalid_test_parameters, get_parameter_name, to_bytes
@@ -17,6 +17,10 @@ CLIENT_STATE_FILE = "client_state"
 SERVER_DATA = f"Some random data from the server:" + random_str(10)
 CLIENT_DATA = f"Some random data from the client:" + random_str(10)
 
+S2N_TEST_POLICIES = {
+    Protocols.TLS12.value: Ciphers.SECURITY_POLICY_DEFAULT,
+    Protocols.TLS13.value: Ciphers.SECURITY_POLICY_DEFAULT_TLS13,
+}
 
 class MainlineRole(Enum):
     Serialize = auto()
@@ -62,7 +66,7 @@ def test_server_serialization_backwards_compat(
 
     options = ProviderOptions(
         port=next(available_ports),
-        protocol=protocol,
+        cipher=S2N_TEST_POLICIES[protocol.value],
         insecure=True,
     )
 
