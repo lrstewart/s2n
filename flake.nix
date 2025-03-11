@@ -26,6 +26,7 @@
         openssl_1_0_2 = import ./nix/openssl_1_0_2.nix { pkgs = pkgs; };
         openssl_1_1_1 = import ./nix/openssl_1_1_1.nix { pkgs = pkgs; };
         openssl_3_0 = import ./nix/openssl_3_0.nix { pkgs = pkgs; };
+        openssl_3_fips = import ./nix/openssl_3_fips.nix { pkgs = pkgs; };
         libressl = import ./nix/libressl.nix { pkgs = pkgs; };
         common_packages = [
           # Integration Deps
@@ -107,6 +108,7 @@
           OPENSSL_1_0_2_INSTALL_DIR = "${openssl_1_0_2}";
           OPENSSL_1_1_1_INSTALL_DIR = "${openssl_1_1_1}";
           OPENSSL_3_0_INSTALL_DIR = "${openssl_3_0}";
+          OPENSSL_3_FIPS_INSTALL_DIR = "${openssl_3_fips}";
           AWSLC_INSTALL_DIR = "${aws-lc}";
           AWSLC_FIPS_2022_INSTALL_DIR = "${aws-lc-fips-2022}";
           AWSLC_FIPS_2024_INSTALL_DIR = "${aws-lc-fips-2024}";
@@ -120,6 +122,20 @@
             source ${writeScript ./nix/shell.sh}
           '';
         };
+
+        devShells.openssl3fips = devShells.default.overrideAttrs
+          (finalAttrs: previousAttrs: {
+            # Re-include cmake to update the environment with a new libcrypto.
+            buildInputs = [ pkgs.cmake openssl_3_fips ];
+            S2N_LIBCRYPTO = "openssl-3.0-fips";
+            # Integ s_client/server tests expect openssl 1.1.1.
+            shellHook = ''
+              echo Setting up $S2N_LIBCRYPTO environment from flake.nix...
+              export PATH=${openssl_1_1_1}/bin:$PATH
+              export PS1="[nix $S2N_LIBCRYPTO] $PS1"
+              source ${writeScript ./nix/shell.sh}
+            '';
+          });
 
         devShells.openssl111 = devShells.default.overrideAttrs
           (finalAttrs: previousAttrs: {
