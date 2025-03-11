@@ -69,6 +69,16 @@ batch:
         variables:
           S2N_LIBCRYPTO: openssl-3.0
           COMPILER: clang
+    - identifier: clang_openssl_3_0_fips
+      buildspec: codebuild/spec/buildspec_fuzz.yml
+      debug-session: true
+      env:
+        compute-type: BUILD_GENERAL1_XLARGE
+        image: 024603541914.dkr.ecr.us-west-2.amazonaws.com/docker:ubuntu24_20250214
+        privileged-mode: true
+        variables:
+          S2N_LIBCRYPTO: openssl-3.0-fips
+          COMPILER: clang
     - identifier: clang_openssl_1_0_2_fips
       buildspec: codebuild/spec/buildspec_fuzz.yml
       debug-session: true
