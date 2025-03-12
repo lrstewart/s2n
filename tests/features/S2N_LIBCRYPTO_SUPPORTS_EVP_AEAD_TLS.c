@@ -17,7 +17,10 @@
 
 int main()
 {
+    EVP_AEAD_CTX evp_aead_ctx = { 0 };
+    EVP_AEAD_CTX_zero(&evp_aead_ctx);
     EVP_aead_aes_256_gcm_tls13();
     EVP_aead_aes_128_gcm_tls13();
+    EVP_AEAD_CTX_free(&evp_aead_ctx);
     return 0;
 }
