@@ -6,6 +6,8 @@
 # Usage: ./generate_certs.sh [clean]
 # Generates all necessary certs for benching
 # Use argument "clean" to remove all generated certs
+# Use argument "pq" to also generate PQ certs. This requires an openssl binary
+# that supports PQ algorithms, like openssl-3.5.
 
 # immediately bail if any command fails
 set -e
@@ -24,21 +26,30 @@ cert-gen () {
 
     echo -e "\n----- generating certs for $key_family $key_size with $digest $signature -----\n"
     #echo "generating $key_family $key_size cert with $digest $signature"
-
-    # set openssl argument name
+    
+    # Set key options
     if [[ $key_family == rsa || $key_family == rsa-pss ]]; then
-        local argname=rsa_keygen_bits:
+        local key_options="-pkeyopt rsa_keygen_bits:$key_size"
     elif [[ $key_family == ec ]]; then
-        local argname=ec_paramgen_curve:P-
+        local key_options="-pkeyopt ec_paramgen_curve:P-$key_size"
+    elif [[ $key_family == ML-DSA ]]; then
+        # ML-DSA specifies the keysize directly in the algorithm name
+        key_family="$key_family-$key_size"
+        local key_options=""
+    else
+        local key_options=""
+    fi
+    
+    if [[ "$digest" != "NONE" ]]
+    then
+        local signature_options="-$digest"
     fi
 
     # All signature algorithims are the default except for rsa-pss signatures
     # with rsae keys. For this case we must manually specify things
     if [[ $key_family == rsa && $signature == pss ]]
     then
-        local signature_options="-sigopt rsa_padding_mode:pss"
-    else
-        local signature_options=""
+        local signature_options="$signature_options -sigopt rsa_padding_mode:pss"
     fi
 
     # make directory for certs
@@ -58,12 +69,11 @@ cert-gen () {
     echo "generating CA private key and certificate"
     openssl req -new -noenc -x509 \
             -newkey $key_family \
-            -pkeyopt $argname$key_size \
+            $key_options \
             -keyout  ca-key.pem \
             -out ca-cert.pem \
             -days 65536 \
             $signature_options \
-            -$digest \
             -subj "/C=US/CN=root" \
             -addext "basicConstraints = critical,CA:true" \
             -addext "keyUsage = critical,keyCertSign"
@@ -71,7 +81,7 @@ cert-gen () {
     echo "generating intermediate private key and CSR"
     openssl req  -new -noenc \
             -newkey $key_family \
-            -pkeyopt $argname$key_size \
+            $key_options \
             -keyout intermediate-key.pem \
             -out intermediate.csr \
             -subj "/C=US/CN=branch" \
@@ -81,7 +91,7 @@ cert-gen () {
     echo "generating server private key and CSR"
     openssl req  -new -noenc \
             -newkey $key_family \
-            -pkeyopt $argname$key_size \
+            $key_options \
             -keyout server-key.pem \
             -out server.csr \
             -subj "/C=US/CN=leaf" \
@@ -90,7 +100,7 @@ cert-gen () {
     echo "generating client private key and CSR"
     openssl req  -new -noenc \
             -newkey $key_family \
-            -pkeyopt $argname$key_size \
+            $key_options \
             -keyout client-key.pem \
             -out client.csr \
             -subj "/C=US/CN=client" \
@@ -100,7 +110,6 @@ cert-gen () {
     openssl x509 -days 65536 \
             -req -in intermediate.csr \
             $signature_options \
-            -$digest \
             -CA ca-cert.pem \
             -CAkey ca-key.pem \
             -CAcreateserial \
@@ -111,7 +120,6 @@ cert-gen () {
     openssl x509 -days 65536 \
             -req -in server.csr \
             $signature_options \
-            -$digest \
             -CA intermediate-cert.pem \
             -CAkey intermediate-key.pem \
             -CAcreateserial -out server-cert.pem \
@@ -121,7 +129,6 @@ cert-gen () {
     openssl x509 -days 65536 \
             -req -in client.csr \
             $signature_options \
-            -$digest \
             -CA ca-cert.pem \
             -CAkey ca-key.pem \
             -CAcreateserial -out client-cert.pem \
@@ -145,8 +152,8 @@ cert-gen () {
     rm client.csr
 
     # serial files are generated during the signing process, but are not used
-    rm ca-cert.srl
-    rm intermediate-cert.srl
+    rm -f ca-cert.srl
+    rm -f intermediate-cert.srl
 
     # the private keys of the CA and the intermediat CA are never needed after 
     # signing
@@ -180,6 +187,11 @@ then
     cert-gen   rsa        pkcsv1.5     4096       SHA384      rsae_pkcs_4096_sha384
     cert-gen   rsa          pss        4096       SHA384      rsae_pss_4096_sha384
     cert-gen   rsa-pss      pss        2048       SHA256      rsapss_pss_2048_sha256
+    if [[ $1 == "pq" ]]; then
+    cert-gen   ML-DSA      ML-DSA      44         NONE        mldsa44
+    cert-gen   ML-DSA      ML-DSA      65         NONE        mldsa65
+    cert-gen   ML-DSA      ML-DSA      87         NONE        mldsa87
+    fi
 
 else
     echo "cleaning certs"
