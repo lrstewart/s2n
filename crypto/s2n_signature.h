@@ -28,7 +28,8 @@ typedef enum {
     S2N_SIGNATURE_RSA = S2N_TLS_SIGNATURE_RSA,
     S2N_SIGNATURE_ECDSA = S2N_TLS_SIGNATURE_ECDSA,
 
-    /* Use Private Range for RSA PSS */
+    /* Use Private Range for non-legacy signature algorithms */
     S2N_SIGNATURE_RSA_PSS_RSAE = S2N_TLS_SIGNATURE_RSA_PSS_RSAE,
-    S2N_SIGNATURE_RSA_PSS_PSS
+    S2N_SIGNATURE_RSA_PSS_PSS,
+    S2N_SIGNATURE_MLDSA,
 } s2n_signature_algorithm;

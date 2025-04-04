@@ -204,6 +204,39 @@ const struct s2n_signature_scheme s2n_rsa_pss_pss_sha512 = {
     .minimum_protocol_version = S2N_TLS12,
 };
 
+
+/* ML-DSA: post-quantum signature schemes */
+
+extern const struct s2n_signature_scheme s2n_mldsa44 = {
+    .iana_value = TLS_SIGNATURE_SCHEME_MLDSA44,
+    .iana_name = "mldsa44",
+    .hash_alg = S2N_HASH_NONE,
+    .sig_alg = S2N_SIGNATURE_MLDSA,
+    .libcrypto_nid = NID_MLDSA44,
+    .signature_curve = NULL,
+    .minimum_protocol_version = S2N_TLS13,
+};
+
+extern const struct s2n_signature_scheme s2n_mldsa65 = {
+    .iana_value = TLS_SIGNATURE_SCHEME_MLDSA65,
+    .iana_name = "mldsa65",
+    .hash_alg = S2N_HASH_NONE,
+    .sig_alg = S2N_SIGNATURE_MLDSA,
+    .libcrypto_nid = NID_MLDSA65,
+    .signature_curve = NULL,
+    .minimum_protocol_version = S2N_TLS13,
+};
+
+extern const struct s2n_signature_scheme s2n_mldsa87 = {
+    .iana_value = TLS_SIGNATURE_SCHEME_MLDSA87,
+    .iana_name = "mldsa87",
+    .hash_alg = S2N_HASH_NONE,
+    .sig_alg = S2N_SIGNATURE_MLDSA,
+    .libcrypto_nid = NID_MLDSA87,
+    .signature_curve = NULL,
+    .minimum_protocol_version = S2N_TLS13,
+};
+
 /* ALL signature schemes, including the legacy default s2n_rsa_pkcs1_md5_sha1 scheme.
  * New signature schemes must be added to this list.
  */
