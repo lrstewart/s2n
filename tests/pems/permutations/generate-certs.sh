@@ -6,8 +6,9 @@
 # Usage: ./generate_certs.sh [clean]
 # Generates all necessary certs for benching
 # Use argument "clean" to remove all generated certs
-# Use argument "pq" to also generate PQ certs. This requires an openssl binary
-# that supports PQ algorithms, like openssl-3.5.
+# Use argument "oqs" to also generate PQ certs using the oqs provider:
+# https://github.com/open-quantum-safe/oqs-provider In the future we could use
+# openssl-3.5 or awslc, but as of this commit neither fully supports our requirements.
 
 # immediately bail if any command fails
 set -e
@@ -32,9 +33,9 @@ cert-gen () {
         local key_options="-pkeyopt rsa_keygen_bits:$key_size"
     elif [[ $key_family == ec ]]; then
         local key_options="-pkeyopt ec_paramgen_curve:P-$key_size"
-    elif [[ $key_family == ML-DSA ]]; then
+    elif [[ $key_family == mldsa ]]; then
         # ML-DSA specifies the keysize directly in the algorithm name
-        key_family="$key_family-$key_size"
+        key_family="$key_family$key_size"
         local key_options=""
     else
         local key_options=""
@@ -67,7 +68,7 @@ cert-gen () {
 
     # we pass in the digest here because it is self signed
     echo "generating CA private key and certificate"
-    openssl req -new -noenc -x509 \
+    openssl req $providers -new -noenc -x509 \
             -newkey $key_family \
             $key_options \
             -keyout  ca-key.pem \
@@ -79,7 +80,7 @@ cert-gen () {
             -addext "keyUsage = critical,keyCertSign"
 
     echo "generating intermediate private key and CSR"
-    openssl req  -new -noenc \
+    openssl req $providers -new -noenc \
             -newkey $key_family \
             $key_options \
             -keyout intermediate-key.pem \
@@ -89,7 +90,7 @@ cert-gen () {
             -addext "keyUsage = critical,keyCertSign"
 
     echo "generating server private key and CSR"
-    openssl req  -new -noenc \
+    openssl req $providers -new -noenc \
             -newkey $key_family \
             $key_options \
             -keyout server-key.pem \
@@ -98,7 +99,7 @@ cert-gen () {
             -addext "subjectAltName = DNS:localhost"
 
     echo "generating client private key and CSR"
-    openssl req  -new -noenc \
+    openssl req $providers -new -noenc \
             -newkey $key_family \
             $key_options \
             -keyout client-key.pem \
@@ -107,7 +108,7 @@ cert-gen () {
             -addext "subjectAltName = DNS:localhost"
 
     echo "generating intermediate certificate and signing it"
-    openssl x509 -days 65536 \
+    openssl x509 $providers -days 65536 \
             -req -in intermediate.csr \
             $signature_options \
             -CA ca-cert.pem \
@@ -117,7 +118,7 @@ cert-gen () {
             -copy_extensions=copyall
 
     echo "generating server certificate and signing it"
-    openssl x509 -days 65536 \
+    openssl x509 $providers -days 65536 \
             -req -in server.csr \
             $signature_options \
             -CA intermediate-cert.pem \
@@ -126,7 +127,7 @@ cert-gen () {
             -copy_extensions=copyall
 
     echo "generating client certificate and signing it"
-    openssl x509 -days 65536 \
+    openssl x509 $providers -days 65536 \
             -req -in client.csr \
             $signature_options \
             -CA ca-cert.pem \
@@ -140,11 +141,11 @@ cert-gen () {
     cat ca-cert.pem >> server-chain.pem
 
     echo "verifying server certificates"
-    openssl verify -CAfile ca-cert.pem intermediate-cert.pem
-    openssl verify -CAfile ca-cert.pem -untrusted intermediate-cert.pem server-cert.pem
+    openssl verify $providers -CAfile ca-cert.pem intermediate-cert.pem
+    openssl verify $providers -CAfile ca-cert.pem -untrusted intermediate-cert.pem server-cert.pem
 
     echo "verifying client certificates"
-    openssl verify -CAfile ca-cert.pem client-cert.pem
+    openssl verify $providers -CAfile ca-cert.pem client-cert.pem
 
     # certificate signing requests are never used after the certs are generated
     rm server.csr
@@ -168,6 +169,11 @@ cert-gen () {
     cd ..
 }
 
+providers="-provider default"
+if [[ $1 == "oqs" ]]; then
+    providers="-provider oqsprovider $providers"
+fi
+
 if [[ $1 != "clean" ]]
 then
     #         key        signature   key_size     digest         directory
@@ -187,10 +193,10 @@ then
     cert-gen   rsa        pkcsv1.5     4096       SHA384      rsae_pkcs_4096_sha384
     cert-gen   rsa          pss        4096       SHA384      rsae_pss_4096_sha384
     cert-gen   rsa-pss      pss        2048       SHA256      rsapss_pss_2048_sha256
-    if [[ $1 == "pq" ]]; then
-    cert-gen   ML-DSA      ML-DSA      44         NONE        mldsa44
-    cert-gen   ML-DSA      ML-DSA      65         NONE        mldsa65
-    cert-gen   ML-DSA      ML-DSA      87         NONE        mldsa87
+    if [[ $1 == "oqs" ]]; then
+    cert-gen   mldsa       mldsa       44         NONE        mldsa44
+    cert-gen   mldsa       mldsa       65         NONE        mldsa65
+    cert-gen   mldsa       mldsa       87         NONE        mldsa87
     fi
 
 else
