@@ -1,5 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+import copy
 import pytest
 import os
 
@@ -31,6 +32,12 @@ KEM_GROUPS = [
     KemGroups.P256_KYBER512R3,
     KemGroups.P384_KYBER768R3,
     KemGroups.P521_KYBER1024R3,
+]
+
+MLDSA_CERTS = [
+    Certificates.MLDSA44,
+    Certificates.MLDSA65,
+    Certificates.MLDSA87,
 ]
 
 EXPECTED_RESULTS = {
@@ -398,3 +405,46 @@ def test_oqs_openssl_to_s2nd_pq_handshake(managed_process, protocol, cipher, kem
         # Server is s2n; can make meaningful assertions about negotiation
         results.assert_success()
         assert_s2n_negotiation_parameters(results, expected_result)
+
+
+@pytest.mark.uncollect_if(func=invalid_test_parameters)
+@pytest.mark.parametrize("provider", [OpenSSL], ids=get_parameter_name)
+@pytest.mark.parametrize("mode", [Provider.ClientMode, Provider.ServerMode], ids=get_parameter_name)
+@pytest.mark.parametrize("certificate", MLDSA_CERTS, ids=get_parameter_name)
+def test_mldsa(managed_process, provider, mode, certificate):  # noqa: F811
+    if "awslc" not in get_flag(S2N_PROVIDER_VERSION):
+        pytest.skip(
+            "s2n must be compiled with awslc libcrypto in order to test PQ TLS compatibility"
+        )
+
+    port = next(available_ports)
+    peer_mode = Provider.ServerMode if mode == Provider.ClientMode else Provider.ClientMode
+
+    options = ProviderOptions(
+        port=port,
+        protocol=Protocols.TLS13,
+        cert=certificate.cert,
+        key=certificate.key,
+        insecure=True,
+    )
+    
+    s2n_options = copy.copy(options)
+    s2n_options.mode = mode
+    s2n_options.cipher = Ciphers.SECURITY_POLICY_DEFAULT_PQ
+
+    peer_options = copy.copy(options)
+    peer_options.mode = peer_mode
+
+    if mode == Provider.ClientMode:
+        peer = managed_process(provider, peer_options, timeout=5)
+        s2n = managed_process(S2N, s2n_options, timeout=5)
+    else:
+        s2n = managed_process(S2N, s2n_options, timeout=5)
+        peer = managed_process(provider, peer_options, timeout=5)
+
+    for results in s2n.get_results():
+        results.assert_success()
+        assert to_bytes("Server signature negotiated: MLDSA+None") in results.stdout
+
+    for results in peer.get_results():
+        results.assert_success()

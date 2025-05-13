@@ -81,11 +81,11 @@ class Provider(object):
 
     @classmethod
     def supports_protocol(cls, protocol):
-        raise NotImplementedError
+        return True
 
     @classmethod
     def supports_cipher(cls, cipher, with_curve=None):
-        raise NotImplementedError
+        return True
 
     @classmethod
     def supports_signature(cls, signature):

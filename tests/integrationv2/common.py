@@ -103,10 +103,10 @@ class TimeoutException(subprocess.SubprocessError):
 
 
 class Cert(object):
-    def __init__(self, name, prefix, location=TEST_CERT_DIRECTORY):
+    def __init__(self, name, prefix, location=TEST_CERT_DIRECTORY, cert_suffix=None, key_suffix=None):
         self.name = name
-        self.cert = location + prefix + "_cert.pem"
-        self.key = location + prefix + "_key.pem"
+        self.cert = location + prefix + (cert_suffix or "_cert.pem")
+        self.key = location + prefix + (key_suffix or "_key.pem")
         self.algorithm = "ANY"
         self.curve = None
 
@@ -174,6 +174,10 @@ class Certificates(object):
     ECDSA_256 = Cert("ECDSA_256", "localhost_ecdsa_p256")
     ECDSA_384 = Cert("ECDSA_384", "ecdsa_p384_pkcs1")
     ECDSA_521 = Cert("ECDSA_521", "ecdsa_p521")
+
+    MLDSA44 = Cert("MLDSA44", "mldsa/ML-DSA-44", cert_suffix=".crt", key_suffix="-seed.priv")
+    MLDSA65 = Cert("MLDSA65", "mldsa/ML-DSA-65", cert_suffix=".crt", key_suffix="-expanded.priv")
+    MLDSA87 = Cert("MLDSA87", "mldsa/ML-DSA-87", cert_suffix=".crt", key_suffix="-seed.priv")
 
     RSA_2048_SHA256_WILDCARD = Cert(
         "RSA_2048_SHA256_WILDCARD", "rsa_2048_sha256_wildcard"
@@ -517,6 +521,9 @@ class Ciphers(object):
     )
     SECURITY_POLICY_DEFAULT_TLS13 = Cipher(
         "default_tls13", Protocols.TLS12, False, False, s2n=True, pq=False
+    )
+    SECURITY_POLICY_DEFAULT_PQ = Cipher(
+        "default_pq", Protocols.TLS12, False, True, s2n=True, pq=True
     )
     """
     There is no "default_tls12" policy like there is a "default_tls13".
