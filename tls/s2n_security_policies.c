@@ -98,7 +98,7 @@ const struct s2n_security_policy security_policy_20241001_pq_mixed = {
 
 const struct s2n_security_policy security_policy_20240603 = {
     .minimum_protocol_version = S2N_TLS12,
-    .cipher_preferences = &cipher_preferences_20240603,
+    .cipher_preferences = &cipher_preferences_20170210,
     .kem_preferences = &kem_preferences_null,
     .signature_preferences = &s2n_signature_preferences_20240501,
     .certificate_signature_preferences = &s2n_certificate_signature_preferences_20201110,
@@ -145,7 +145,7 @@ const struct s2n_security_policy security_policy_20230317 = {
     .minimum_protocol_version = S2N_TLS12,
     .cipher_preferences = &cipher_preferences_20230317,
     .kem_preferences = &kem_preferences_null,
-    .signature_preferences = &s2n_signature_preferences_20230317,
+    .signature_preferences = &s2n_signature_preferences_default_fips,
     .certificate_signature_preferences = &s2n_signature_preferences_20230317,
     .ecc_preferences = &s2n_ecc_preferences_20201021,
     .rules = {
@@ -162,7 +162,6 @@ const struct s2n_security_policy security_policy_20240331 = {
     .certificate_signature_preferences = &s2n_signature_preferences_20230317,
     .ecc_preferences = &s2n_ecc_preferences_20201021,
     .rules = {
-            [S2N_PERFECT_FORWARD_SECRECY] = true,
             [S2N_FIPS_140_3] = true,
     },
 };
@@ -194,7 +193,7 @@ const struct s2n_security_policy security_policy_20190802 = {
 };
 
 const struct s2n_security_policy security_policy_20170405 = {
-    .minimum_protocol_version = S2N_TLS10,
+    .minimum_protocol_version = S2N_TLS13,
     .cipher_preferences = &cipher_preferences_20170405,
     .kem_preferences = &kem_preferences_null,
     .signature_preferences = &s2n_signature_preferences_20140601,
@@ -1327,7 +1326,6 @@ struct s2n_security_policy_selection security_policy_selection[] = {
     { .version = "PQ-TLS-1-3-2023-06-01", .security_policy = &security_policy_pq_tls_1_3_2023_06_01, .ecc_extension_required = 0, .pq_kem_extension_required = 0 },
     { .version = "PQ-TLS-1-2-2023-10-07", .security_policy = &security_policy_pq_tls_1_2_2023_10_07, .ecc_extension_required = 0, .pq_kem_extension_required = 0 },
     { .version = "PQ-TLS-1-2-2023-10-08", .security_policy = &security_policy_pq_tls_1_2_2023_10_08, .ecc_extension_required = 0, .pq_kem_extension_required = 0 },
-    { .version = "PQ-TLS-1-2-2023-10-09", .security_policy = &security_policy_pq_tls_1_2_2023_10_09, .ecc_extension_required = 0, .pq_kem_extension_required = 0 },
     { .version = "PQ-TLS-1-2-2023-10-10", .security_policy = &security_policy_pq_tls_1_2_2023_10_10, .ecc_extension_required = 0, .pq_kem_extension_required = 0 },
     { .version = "PQ-TLS-1-2-2023-12-13", .security_policy = &security_policy_pq_20231213, .ecc_extension_required = 0, .pq_kem_extension_required = 0 },
     { .version = "PQ-TLS-1-2-2023-12-14", .security_policy = &security_policy_pq_20231214, .ecc_extension_required = 0, .pq_kem_extension_required = 0 },
