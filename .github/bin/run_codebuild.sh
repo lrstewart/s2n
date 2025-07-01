@@ -1,4 +1,4 @@
-set -e
+set -ex
 
 usage() {
     echo "run_codebuild.sh <repo> <source> <region> <project>"
@@ -31,13 +31,15 @@ if jq -e '.projects[0].buildBatchConfig' > /dev/null <<< $PROJECT_INFO; then
     echo "Project is batch build"
     START_COMMAND="start-build-batch"
     GET_COMMAND="batch-get-build-batches"
+    PATTERN="buildBatch"
 else
     echo "Project is NOT batch build"
     START_COMMAND="start-build"
     GET_COMMAND="batch-get-builds"
+    PATTERN="build"
 fi
 
-BUILD_ID=$(aws --region $REGION codebuild $START_COMMAND --project-name $NAME --source-location-override https://github.com/$REPO --source-version $SOURCE_VERSION | jq -r .build.id)
+BUILD_ID=$(aws --region $REGION codebuild $START_COMMAND --project-name $NAME --source-location-override https://github.com/$REPO --source-version $SOURCE_VERSION | jq -r ".$PATTERN.id")
 echo "Launched build: $BUILD_ID"
 
 STATUS="IN_PROGRESS"
