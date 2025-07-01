@@ -1,14 +1,13 @@
 set -e
 
 usage() {
-    echo "run_codebuild.sh <repo> <source> <region> <project> [batch]"
+    echo "run_codebuild.sh <repo> <source> <region> <project>"
     echo ""
     echo "Arguments:"
     echo "  repo        Name of the Github repository. For example: aws/s2n-tls"
     echo "  source      Source version. For example: pr/1234, 1234abcd, test_branch"
     echo "  region      AWS region of Codebuild project. For example: us-west-2"
     echo "  project     Name of the Codebuild project. For example: AddressSanitizer"
-    echo "  batch       Either 'batch' or 'no-batch'. Defaults to 'batch'"
 }
 
 if [ "$#" -lt "4" ]; then
@@ -19,11 +18,20 @@ REPO=$1
 SOURCE_VERSION=$2
 REGION=$3
 NAME=$4
-BATCH=${5:-"batch"}
 
-START_COMMAND="start-build-batch"
-GET_COMMAND="batch-get-build-batches"
-if [ "$BATCH" = "no-batch" ]; then
+PROJECT_INFO=$(aws --region $REGION codebuild batch-get-projects --names $NAME)
+if jq -e '.projects[0]' > /dev/null <<< $PROJECT_INFO; then
+    echo "Found project $NAME"
+else
+    echo "Project $NAME not found."
+    exit 1
+fi
+
+if jq -e '.projects[0].batchBuildConfig' > /dev/null <<< $PROJECT_INFO; then
+    echo "Project is batch build"
+    START_COMMAND="start-build-batch"
+    GET_COMMAND="batch-get-build-batches"
+else
     START_COMMAND="start-build"
     GET_COMMAND="batch-get-builds"
 fi

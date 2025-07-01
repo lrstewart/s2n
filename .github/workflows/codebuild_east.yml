@@ -23,7 +23,7 @@ jobs:
           role-session-name: ???
           aws-region: us-east-2
 
-  run-batch:
+  run:
     runs-on: ubuntu-latest
     needs: setup
     matrix:
