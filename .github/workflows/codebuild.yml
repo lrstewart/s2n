@@ -1,0 +1,49 @@
+---
+name: Codebuild
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
+
+env:
+  RUN_CODEBUILD: ./.github/bin/run_codebuild.sh  ${{ github.repository }} pr/${{ github.event.number }} us-west-2
+
+jobs:
+  setup:
+    name: Setup credentials
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4.2.1
+        with:
+          role-to-assume: ???
+          role-session-name: ???
+          aws-region: us-west-2
+
+  run-batch:
+    runs-on: ubuntu-latest
+    needs: setup
+    matrix:
+      project:
+        - AddressSanitizer
+        - S2nIntegrationV2SmallBatch
+        - Valgrind
+        - s2nFuzzBatch
+        - s2nGeneralBatch
+        - s2nUnitNix
+    steps:
+      - run: |
+          ${{env.RUN_CODEBUILD}} ${{matrix.project}}
+
+  run-build:
+    runs-on: ubuntu-latest
+    needs: setup
+    matrix:
+      project:
+        - kTLS
+    steps:
+      - run: |
+          ${{env.RUN_CODEBUILD}} ${{matrix.project}} no-batch
