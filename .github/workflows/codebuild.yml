@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
   pull_request_target:
-    branches: [main]
+    branches: [main, main_no_lrstewart]
   merge_group:
     types: [checks_requested]
     branches: [main]
@@ -22,13 +22,6 @@ jobs:
       pr_author: ${{ github.event.pull_request.user.login }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Get credentials
-        uses: aws-actions/configure-aws-credentials@v4.2.1
-        with:
-          role-to-assume: arn:aws:iam::024603541914:role/GitHubOIDCRole
-          role-session-name: ${{ github.run_id }}
-          aws-region: us-west-2
 
       - name: Start Codebuild for SHA
         if: github.event_name != 'pull_request_target'
