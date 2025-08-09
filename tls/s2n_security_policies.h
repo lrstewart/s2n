@@ -84,6 +84,55 @@ struct s2n_security_policy {
     bool rules[S2N_SECURITY_RULES_COUNT];
 };
 
+/* Macros to help construct simple policies.
+ *
+ * One of the difficulties of security policies is that they are composed of
+ * multiple other structs. Changing that is currently somewhat complicated,
+ * but we can at least fake "all in one" policies using macros.
+ * 
+ * Note that the cipher suite list, signature preference list, etc cannot be
+ * shared between policies this way, so for sets of closely related policies
+ * this may actually be more difficult to reason about.
+ */
+#define S2N_CIPHER_PREF_LIST(...) \
+    { __VA_ARGS__ }
+#define S2N_SIG_PREF_LIST(...) \
+    { __VA_ARGS__ }
+#define S2N_CURVE_PREF_LIST(...) \
+    { __VA_ARGS__ }
+#define S2N_KEM_PREF_LIST(...) \
+    { __VA_ARGS__ }
+#define S2N_INLINE_SECURITY_POLICY_V1(name, min_version, ciphers, signatures, curves, kems) \
+    struct s2n_cipher_suite* name##_cipher_list[] = ciphers; \
+    const struct s2n_cipher_preferences name##_cipher_prefs = { \
+        .count = s2n_array_len(name##_cipher_list), \
+        .suites = name##_cipher_list, \
+        .allow_chacha20_boosting = false, \
+    }; \
+    const struct s2n_signature_scheme *const name##_sig_list[] = signatures; \
+    const struct s2n_signature_preferences name##_sig_prefs = { \
+        .count = s2n_array_len(name##_sig_list), \
+        .signature_schemes = name##_sig_list, \
+    }; \
+    const struct s2n_ecc_named_curve *const name##_curve_list[] = curves; \
+    const struct s2n_ecc_preferences name##_ecc_prefs = { \
+        .count = s2n_array_len(name##_curve_list), \
+        .ecc_curves = name##_curve_list, \
+    }; \
+    const struct s2n_kem_group* name##_kem_group_list[] = kems; \
+    const struct s2n_kem_preferences name##_kem_prefs = { \
+        .tls13_kem_group_count = s2n_array_len(name##_kem_group_list), \
+        .tls13_kem_groups = name##_kem_group_list, \
+        .tls13_pq_hybrid_draft_revision = 5, \
+    }; \
+    const struct s2n_security_policy name = { \
+        .minimum_protocol_version = min_version, \
+        .cipher_preferences = &name##_cipher_prefs, \
+        .signature_preferences = &name##_sig_prefs, \
+        .ecc_preferences = &name##_ecc_prefs, \
+        .kem_preferences = &name##_kem_prefs, \
+    }
+
 struct s2n_security_policy_selection {
     const char *version;
     const struct s2n_security_policy *security_policy;
@@ -159,6 +208,7 @@ extern const struct s2n_security_policy security_policy_aws_crt_sdk_tls_11;
 extern const struct s2n_security_policy security_policy_aws_crt_sdk_tls_12;
 extern const struct s2n_security_policy security_policy_aws_crt_sdk_tls_12_06_23;
 extern const struct s2n_security_policy security_policy_aws_crt_sdk_tls_12_06_23_pq;
+extern const struct s2n_security_policy security_policy_aws_crt_sdk_tls_12_07_25_pq;
 extern const struct s2n_security_policy security_policy_aws_crt_sdk_tls_13;
 
 extern const struct s2n_security_policy security_policy_kms_pq_tls_1_0_2019_06;
