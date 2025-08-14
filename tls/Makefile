@@ -29,7 +29,7 @@ all: $(OBJS)
 
 .PHONY : bc
 bc: $(BCS)
-	$(foreach subfolder, $(SUB_BUILDS), $(MAKE) -C $(subfolder) bc;)
+	$(foreach subfolder, $(SUB_BUILDS), $(foreach src, $(wildcard $(subfolder)/*.c), $(MAKE) $(BITCODE_DIR)$(notdir $(basename $(src))).bc;))
 
 .PHONY : run-lcov
 run-lcov: lcov
