@@ -95,15 +95,6 @@ int s2n_tls13_compute_pq_shared_secret(struct s2n_connection *conn, struct s2n_b
     struct s2n_ecc_evp_params *client_ecc_params = &client_kem_group_params->ecc_params;
     POSIX_ENSURE_REF(client_ecc_params);
 
-    DEFER_CLEANUP(struct s2n_blob ecdhe_shared_secret = { 0 }, s2n_free_or_wipe);
-
-    /* Compute the ECDHE shared secret, and retrieve the PQ shared secret. */
-    if (conn->mode == S2N_CLIENT) {
-        POSIX_GUARD(s2n_ecc_evp_compute_shared_secret_from_params(client_ecc_params, server_ecc_params, &ecdhe_shared_secret));
-    } else {
-        POSIX_GUARD(s2n_ecc_evp_compute_shared_secret_from_params(server_ecc_params, client_ecc_params, &ecdhe_shared_secret));
-    }
-
     struct s2n_blob *pq_shared_secret = &client_kem_group_params->kem_params.shared_secret;
     POSIX_ENSURE_REF(pq_shared_secret);
     POSIX_ENSURE_REF(pq_shared_secret->data);
@@ -111,6 +102,16 @@ int s2n_tls13_compute_pq_shared_secret(struct s2n_connection *conn, struct s2n_b
     const struct s2n_kem_group *negotiated_kem_group = conn->kex_params.server_kem_group_params.kem_group;
     POSIX_ENSURE_REF(negotiated_kem_group);
     POSIX_ENSURE_REF(negotiated_kem_group->kem);
+
+    DEFER_CLEANUP(struct s2n_blob ecdhe_shared_secret = { 0 }, s2n_free_or_wipe);
+
+    if (negotiated_kem_group->curve == &s2n_ecc_curve_none) {
+        POSIX_ENSURE_EQ(ecdhe_shared_secret.size, 0);
+    } else if (conn->mode == S2N_CLIENT) {
+        POSIX_GUARD(s2n_ecc_evp_compute_shared_secret_from_params(client_ecc_params, server_ecc_params, &ecdhe_shared_secret));
+    } else {
+        POSIX_GUARD(s2n_ecc_evp_compute_shared_secret_from_params(server_ecc_params, client_ecc_params, &ecdhe_shared_secret));
+    }
 
     POSIX_ENSURE_EQ(pq_shared_secret->size, negotiated_kem_group->kem->shared_secret_key_length);
 
